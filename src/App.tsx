@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useAuth } from './hooks/useAuth';
 import { useTrackerData } from './hooks/useTrackerData';
 import {
   addReview,
@@ -8,10 +7,13 @@ import {
   subscribeReviews,
 } from './lib/db';
 import type { NewWeeklyReview, Phase, WeeklyReview } from './types';
-import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
 import { PhaseDetail } from './components/PhaseDetail';
 import { WeeklyReviewModal } from './components/WeeklyReviewModal';
+
+// No login. Single-user app: all data lives under one fixed id.
+// This must match the id allowed in firestore.rules.
+const USER_ID = 'me';
 
 function Centered({ children }: { children: React.ReactNode }): JSX.Element {
   return (
@@ -22,25 +24,18 @@ function Centered({ children }: { children: React.ReactNode }): JSX.Element {
 }
 
 export default function App(): JSX.Element {
-  const { user, loading: authLoading, signIn, signOut } = useAuth();
-  const uid = user?.uid ?? null;
+  const uid = USER_ID;
   const { phases, meta, loading, error } = useTrackerData(uid);
 
   const [selectedPhaseId, setSelectedPhaseId] = useState<number | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviews, setReviews] = useState<WeeklyReview[]>([]);
 
-  // Subscribe to weekly reviews once signed in.
+  // Subscribe to weekly reviews.
   useEffect(() => {
-    if (!uid) {
-      setReviews([]);
-      return;
-    }
     return subscribeReviews(uid, setReviews, (e) => console.error(e));
   }, [uid]);
 
-  if (authLoading) return <Centered>Loading…</Centered>;
-  if (!user) return <Login onSignIn={signIn} />;
   if (error) {
     return (
       <Centered>
@@ -60,7 +55,6 @@ export default function App(): JSX.Element {
     topicIndex: number,
     done: boolean,
   ): Promise<void> => {
-    if (!uid) return;
     await setTopicDone(uid, phase, topicIndex, done);
   };
 
@@ -68,12 +62,10 @@ export default function App(): JSX.Element {
     phaseId: number,
     gatePassed: boolean,
   ): Promise<void> => {
-    if (!uid) return;
     await setGatePassed(uid, phaseId, gatePassed);
   };
 
   const handleSubmitReview = async (review: NewWeeklyReview): Promise<void> => {
-    if (!uid) return;
     await addReview(uid, review);
   };
 
@@ -83,12 +75,6 @@ export default function App(): JSX.Element {
         <h1 className="text-base font-semibold text-white">
           {selectedPhase ? 'Phase' : 'Tracker'}
         </h1>
-        <button
-          onClick={() => void signOut()}
-          className="text-xs text-neutral-500 hover:text-white"
-        >
-          Sign out
-        </button>
       </header>
 
       {selectedPhase ? (

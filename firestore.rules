@@ -1,25 +1,16 @@
 rules_version = '2';
 
-// Single-user lockdown.
-// Replace YOUR_UID_HERE with your Firebase Auth UID (see README → "Set the security rules").
-// Every read and write under users/{uid}/** is allowed ONLY when the caller is
-// authenticated AND their uid matches both the requested document path AND your
-// hardcoded UID. Everything else on the project is denied by default.
+// No-login, single-user app. Data lives under users/me/**.
+//
+// WARNING: with no authentication there is no way to tie access to a person, so
+// these rules allow open read/write to this one path. Anyone who has the app's
+// (public) Firebase config can read and write your tracker data. This is the
+// deliberate trade-off for "enter without login". Everything outside users/me
+// is denied.
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function isOwner(uid) {
-      return request.auth != null
-        && request.auth.uid == uid
-        && request.auth.uid == 'YOUR_UID_HERE';
-    }
-
-    match /users/{uid} {
-      allow read, write: if isOwner(uid);
-
-      match /{document=**} {
-        allow read, write: if isOwner(uid);
-      }
+    match /users/me/{document=**} {
+      allow read, write: if true;
     }
   }
 }

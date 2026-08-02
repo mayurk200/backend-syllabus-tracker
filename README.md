@@ -6,17 +6,21 @@ enforces: **you advance on the gate, not on hours spent** — a phase is only
 complete when its gate artifact exists, no matter how many topics are checked.
 
 - **Stack:** Vite + React + TypeScript, Tailwind (no component library)
-- **Backend:** Firebase — Firestore for data, Firebase Auth (Google) for a single user
+- **Backend:** Firebase — Firestore for data (no login)
 - **Hosting:** Netlify
-- **Access control:** Firestore security rules locked to your UID only
+- **Access:** no sign-in. All data lives under the fixed path `users/me`.
+
+> ⚠️ **No login = open data.** Without authentication the security rules cannot
+> tie access to a person, so `users/me` is world-readable/writable by anyone with
+> the app's (public) Firebase config. This is the deliberate trade-off for
+> "enter without login". If you need it locked down, re-introduce Firebase Auth.
 
 ---
 
 ## 1. Prerequisites
 
 - Node.js 18+ and npm
-- A Google account
-- The Firebase CLI:
+- The Firebase CLI (only needed to deploy the security rules):
 
   ```bash
   npm install -g firebase-tools
@@ -26,15 +30,13 @@ complete when its gate artifact exists, no matter how many topics are checked.
 
 1. Go to <https://console.firebase.google.com> → **Add project**. Name it, finish
    the wizard (Analytics optional).
-2. **Enable Authentication:** Build → Authentication → **Get started** → **Sign-in
-   method** → enable **Google** → save. Under Authentication → **Settings →
-   Authorized domains**, make sure `localhost` and your `*.web.app` /
-   `*.firebaseapp.com` domain are listed (they are by default).
-3. **Create Firestore:** Build → Firestore Database → **Create database** →
+2. **Create Firestore:** Build → Firestore Database → **Create database** →
    **Production mode** → pick a region.
-4. **Register a web app:** Project settings (gear icon) → **General** → *Your apps*
+3. **Register a web app:** Project settings (gear icon) → **General** → *Your apps*
    → **Web** (`</>`). Register it. Copy the `firebaseConfig` values — you'll paste
    them into `.env` next.
+
+(No Authentication setup — this app has no login.)
 
 ## 3. Configure environment variables
 
@@ -64,33 +66,31 @@ npm install
 npm run dev
 ```
 
-Open the printed URL, sign in with Google. On first sign-in the app **seeds** all
-12 phases and a `meta` document automatically (only if none exist). The seed
-script verifies the hours sum to 267 and throws loudly if they don't.
+Open the printed URL — the app loads straight in, no login. On first load it
+**seeds** all 12 phases and a `meta` document automatically (only if none exist).
+The seed script verifies the hours sum to 267 and throws loudly if they don't.
 
-## 5. Lock down the security rules (important)
+## 5. Deploy the security rules
 
-The app is single-user. You must pin the rules to *your* UID.
+There is no login, so the rules can't be tied to a user. `firestore.rules` allows
+open read/write to the single `users/me` path and denies everything else. You must
+publish these rules or Firestore (in Production mode) will deny all access.
 
-1. Sign in locally once. Find your UID in Firebase Console → Authentication →
-   **Users** (the "User UID" column), or log `auth.currentUser.uid` in the browser
-   console.
-2. Open `firestore.rules` and replace `YOUR_UID_HERE` with your UID.
-3. Point `.firebaserc` at your project: replace `your-project-id` with your actual
+1. Point `.firebaserc` at your project: replace `your-project-id` with your actual
    project id (or run `firebase use --add`).
-4. Deploy the rules:
+2. Deploy the rules:
 
    ```bash
    firebase deploy --only firestore:rules
    ```
 
-The rules allow reads/writes under `users/{uid}/**` **only** when the caller is
-authenticated, the path UID matches the caller, and the caller's UID equals your
-hardcoded UID. Everything else is denied.
+⚠️ These rules are intentionally open (see the warning at the top). Anyone with the
+public Firebase config can read/write `users/me`. Re-add Firebase Auth if you need
+access control.
 
 ## 6. Deploy to Netlify
 
-Firebase is used only for data + auth; hosting is Netlify. Pick one method.
+Firebase is used only for data; hosting is Netlify. Pick one method.
 
 **A. Git-based (recommended — auto-deploys on every push):**
 
@@ -112,19 +112,18 @@ netlify login
 netlify deploy --build --prod
 ```
 
-After the first deploy, add your Netlify domain (e.g. `your-site.netlify.app`) to
-Firebase Console → **Authentication → Settings → Authorized domains** so Google
-sign-in works on the live site.
+The app has no login, so nothing else is needed after deploy — the live URL loads
+straight into the tracker.
 
 ---
 
 ## Data model
 
 ```
-users/{uid}/phases/{phaseId}   -> { title, hours, description, gate,
-                                     gatePassed, topics: [{name, hours, detail, done}] }
-users/{uid}/meta/profile       -> { targetHoursPerWeek, startDate }
-users/{uid}/reviews/{autoId}   -> { stalled, nextObjective, createdAt }
+users/me/phases/{phaseId}   -> { title, hours, description, gate,
+                                  gatePassed, topics: [{name, hours, detail, done}] }
+users/me/meta/profile       -> { targetHoursPerWeek, startDate }
+users/me/reviews/{autoId}   -> { stalled, nextObjective, createdAt }
 ```
 
 **Topic % and gate status are tracked separately.** The UI never marks a phase
