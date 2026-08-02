@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -15,53 +16,208 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { SEED_PHASES, verifySeedHours } from '../data/seedData';
-import type { Meta, NewWeeklyReview, Phase, PhaseDoc, WeeklyReview } from '../types';
-
-// ---- Path helpers ----
-const phasesCol = (uid: string) => collection(db, 'users', uid, 'phases');
-const phaseDoc = (uid: string, phaseId: number) =>
-  doc(db, 'users', uid, 'phases', String(phaseId));
-const metaDoc = (uid: string) => doc(db, 'users', uid, 'meta', 'profile');
-const reviewsCol = (uid: string) => collection(db, 'users', uid, 'reviews');
-
-// ---- Seeding (runs once) ----
+import { GATE_SUBJECTS, verifyGateHours } from '../data/gateData';
+import { GATE_WEEKS } from '../data/gateWeeks';
+import type {
+  ActivityEvent,
+  Meta,
+  NewActivityEvent,
+  NewWeeklyReview,
+  Phase,
+  PhaseDoc,
+  TrackId,
+  WeekEntry,
+  WeeklyReview,
+  WeekStatus,
+  WeekStatusMap,
+} from '../types';
+import { topicDoneFromSubtopics, topicHoursLogged, weekDayHours } from '../types';
 
 /**
- * Seed the 12 phases + meta document, but only if nothing exists yet.
- * Verifies hour totals before writing and throws loudly on mismatch.
+ * Firestore is the source of truth. The files under src/data are a one-time
+ * bootstrap payload; after the first load every read and write goes to the
+ * database and the app never falls back to the local copy.
+ *
+ *   users/{uid}/tracks/{trackId}/phases/{phaseId}   subjects / phases
+ *   users/{uid}/tracks/{trackId}/meta/profile       target hours, start date
+ *   users/{uid}/tracks/{trackId}/reviews/{autoId}   weekly reviews
+ *   users/{uid}/tracks/{trackId}/activity/{autoId}  append-only event log
+ *   users/{uid}/tracks/gate/weeks/{weekId}          the 28-week timeline
+ *   users/{uid}/tracks/{trackId}/meta/seed          seed version marker
  */
-export async function seedIfEmpty(uid: string): Promise<void> {
-  verifySeedHours();
 
-  const existing = await getDocs(phasesCol(uid));
-  if (!existing.empty) return; // already seeded — do nothing
+const SEED_VERSION = 2;
+
+// ---- Path helpers ----
+const trackDoc = (uid: string, track: TrackId) => doc(db, 'users', uid, 'tracks', track);
+const phasesCol = (uid: string, track: TrackId) =>
+  collection(db, 'users', uid, 'tracks', track, 'phases');
+const phaseDoc = (uid: string, track: TrackId, phaseId: number) =>
+  doc(db, 'users', uid, 'tracks', track, 'phases', String(phaseId));
+const weeksCol = (uid: string) => collection(db, 'users', uid, 'tracks', 'gate', 'weeks');
+const weekDoc = (uid: string, weekId: string) =>
+  doc(db, 'users', uid, 'tracks', 'gate', 'weeks', weekId);
+const metaDoc = (uid: string, track: TrackId) =>
+  doc(db, 'users', uid, 'tracks', track, 'meta', 'profile');
+const seedDoc = (uid: string, track: TrackId) =>
+  doc(db, 'users', uid, 'tracks', track, 'meta', 'seed');
+const reviewsCol = (uid: string, track: TrackId) =>
+  collection(db, 'users', uid, 'tracks', track, 'reviews');
+const activityCol = (uid: string, track: TrackId) =>
+  collection(db, 'users', uid, 'tracks', track, 'activity');
+
+// ---- Activity log ----
+
+/**
+ * Append one event. Timestamps are client-side millis on purpose: the dashboard
+ * buckets hours by local day, and a serverTimestamp reads back as null until the
+ * write is acknowledged, which would drop the event out of today's column.
+ */
+async function logActivity(
+  uid: string,
+  track: TrackId,
+  event: Omit<NewActivityEvent, 'at'>,
+): Promise<void> {
+  await setDoc(doc(activityCol(uid, track)), { ...event, at: Date.now() });
+}
+
+/** Most recent events first. `max` caps how much history the UI keeps in memory. */
+export function subscribeActivity(
+  uid: string,
+  track: TrackId,
+  max: number,
+  onData: (events: ActivityEvent[]) => void,
+  onError: (err: Error) => void,
+): Unsubscribe {
+  const q = query(activityCol(uid, track), orderBy('at', 'desc'), limit(max));
+  return onSnapshot(
+    q,
+    (snap) => {
+      onData(
+        snap.docs.map((d) => {
+          const data = d.data() as Omit<ActivityEvent, 'id'>;
+          return {
+            id: d.id,
+            kind: data.kind,
+            label: data.label ?? '',
+            hours: data.hours ?? 0,
+            at: data.at ?? Date.now(),
+          };
+        }),
+      );
+    },
+    (err) => onError(err),
+  );
+}
+
+// ---- Seeding (runs once per track) ----
+
+function seedPhasesFor(track: TrackId): readonly Phase[] {
+  return track === 'gate' ? GATE_SUBJECTS : SEED_PHASES;
+}
+
+/**
+ * Write the initial content for a track into Firestore, but only if that track
+ * has no documents yet. Verifies hour totals first and throws loudly on a
+ * mismatch rather than seeding bad data.
+ */
+export async function seedTrackIfEmpty(uid: string, track: TrackId): Promise<void> {
+  if (track === 'gate') verifyGateHours();
+  else verifySeedHours();
+
+  const existing = await getDocs(phasesCol(uid, track));
+  if (!existing.empty) return; // already seeded — the database wins
 
   const batch = writeBatch(db);
 
-  for (const phase of SEED_PHASES) {
+  // The parent track document must exist for the console to show the subtree.
+  batch.set(trackDoc(uid, track), { id: track, seededAt: serverTimestamp() });
+
+  for (const phase of seedPhasesFor(track)) {
     const { id, ...rest } = phase;
-    const payload: PhaseDoc = rest;
-    batch.set(phaseDoc(uid, id), payload);
+    batch.set(phaseDoc(uid, track, id), rest as PhaseDoc);
+  }
+
+  if (track === 'gate') {
+    for (const w of GATE_WEEKS) {
+      const { id, ...rest } = w;
+      batch.set(weekDoc(uid, id), { ...rest, status: null });
+    }
   }
 
   const meta: Meta = {
-    targetHoursPerWeek: 10,
-    startDate: new Date().toISOString().slice(0, 10),
+    targetHoursPerWeek: track === 'gate' ? 45 : 15,
+    startDate: track === 'gate' ? '2026-07-27' : new Date().toISOString().slice(0, 10),
   };
-  batch.set(metaDoc(uid), meta);
+  batch.set(metaDoc(uid, track), meta);
+  batch.set(seedDoc(uid, track), { version: SEED_VERSION, at: serverTimestamp() });
 
   await batch.commit();
 }
 
-// ---- Phases ----
+/** Seed every track. Safe to call on every load. */
+export async function seedIfEmpty(uid: string): Promise<void> {
+  await seedTrackIfEmpty(uid, 'gate');
+  await seedTrackIfEmpty(uid, 'backend');
+  await migrateLegacyBackend(uid);
+}
+
+/**
+ * v1 stored the backend phases at users/{uid}/phases/*. If that legacy data is
+ * still there, carry the user's ticks and gates across, then leave the old
+ * documents alone (harmless, and a safety net if anything went wrong).
+ */
+async function migrateLegacyBackend(uid: string): Promise<void> {
+  const legacy = await getDocs(collection(db, 'users', uid, 'phases'));
+  if (legacy.empty) return;
+
+  const marker = await getDoc(
+    doc(db, 'users', uid, 'tracks', 'backend', 'meta', 'migrated'),
+  );
+  if (marker.exists()) return;
+
+  const current = await getDocs(phasesCol(uid, 'backend'));
+  const byId = new Map<string, Phase>();
+  current.forEach((d) => byId.set(d.id, { id: Number(d.id), ...(d.data() as PhaseDoc) }));
+
+  const batch = writeBatch(db);
+  legacy.forEach((d) => {
+    const old = d.data() as {
+      gatePassed?: boolean;
+      topics?: Array<{ name: string; done?: boolean }>;
+    };
+    const next = byId.get(d.id);
+    if (!next) return;
+
+    const doneNames = new Set(
+      (old.topics ?? []).filter((t) => t.done).map((t) => t.name),
+    );
+    const topics = next.topics.map((t) =>
+      doneNames.has(t.name)
+        ? { ...t, done: true, subtopics: t.subtopics.map((s) => ({ ...s, done: true })) }
+        : t,
+    );
+    batch.update(phaseDoc(uid, 'backend', next.id), {
+      topics,
+      gatePassed: Boolean(old.gatePassed),
+    });
+  });
+  batch.set(doc(db, 'users', uid, 'tracks', 'backend', 'meta', 'migrated'), {
+    at: serverTimestamp(),
+  });
+  await batch.commit();
+}
+
+// ---- Phases / subjects ----
 
 export function subscribePhases(
   uid: string,
+  track: TrackId,
   onData: (phases: Phase[]) => void,
   onError: (err: Error) => void,
 ): Unsubscribe {
   return onSnapshot(
-    phasesCol(uid),
+    phasesCol(uid, track),
     (snap) => {
       const phases: Phase[] = snap.docs.map((d) => {
         const data = d.data() as PhaseDoc;
@@ -74,61 +230,204 @@ export function subscribePhases(
   );
 }
 
+/** Tick or untick a single subtopic; the parent topic's flag is recomputed. */
+export async function setSubtopicDone(
+  uid: string,
+  track: TrackId,
+  phase: Phase,
+  topicIndex: number,
+  subtopicIndex: number,
+  done: boolean,
+): Promise<void> {
+  const subtopic = phase.topics[topicIndex]?.subtopics[subtopicIndex];
+  if (!subtopic || subtopic.done === done) return;
+
+  const topics = phase.topics.map((t, i) => {
+    if (i !== topicIndex) return t;
+    const subtopics = t.subtopics.map((s, j) =>
+      j === subtopicIndex ? { ...s, done } : s,
+    );
+    const next = { ...t, subtopics };
+    return { ...next, done: topicDoneFromSubtopics(next) };
+  });
+  await updateDoc(phaseDoc(uid, track, phase.id), { topics });
+  await logActivity(uid, track, {
+    kind: 'subtopic',
+    label: `${done ? 'Ticked' : 'Unticked'} ${subtopic.name}`,
+    hours: done ? subtopic.hours : -subtopic.hours,
+  });
+}
+
+/** Tick or untick a whole topic — cascades to every subtopic under it. */
 export async function setTopicDone(
   uid: string,
+  track: TrackId,
   phase: Phase,
   topicIndex: number,
   done: boolean,
 ): Promise<void> {
-  const topics = phase.topics.map((t, i) => (i === topicIndex ? { ...t, done } : t));
-  await updateDoc(phaseDoc(uid, phase.id), { topics });
+  const topic = phase.topics[topicIndex];
+  if (!topic) return;
+  const before = topicHoursLogged(topic);
+
+  const topics = phase.topics.map((t, i) =>
+    i === topicIndex
+      ? { ...t, done, subtopics: t.subtopics.map((s) => ({ ...s, done })) }
+      : t,
+  );
+  await updateDoc(phaseDoc(uid, track, phase.id), { topics });
+  await logActivity(uid, track, {
+    kind: 'topic',
+    label: `${done ? 'Closed' : 'Reopened'} ${topic.name}`,
+    hours: (done ? topic.hours : 0) - before,
+  });
 }
 
 export async function setGatePassed(
   uid: string,
-  phaseId: number,
+  track: TrackId,
+  phase: Phase,
   gatePassed: boolean,
 ): Promise<void> {
-  await updateDoc(phaseDoc(uid, phaseId), { gatePassed });
+  await updateDoc(phaseDoc(uid, track, phase.id), { gatePassed });
+  await logActivity(uid, track, {
+    kind: 'gate',
+    label: `Gate ${gatePassed ? 'passed' : 'reopened'} — ${phase.title}`,
+    hours: 0,
+  });
+}
+
+// ---- GATE week timeline ----
+
+type WeekDoc = Omit<WeekEntry, 'id'> & { status?: WeekStatus | null };
+
+export function subscribeWeeks(
+  uid: string,
+  onData: (weeks: WeekEntry[], status: WeekStatusMap) => void,
+  onError: (err: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    weeksCol(uid),
+    (snap) => {
+      const weeks: WeekEntry[] = [];
+      const status: WeekStatusMap = {};
+      snap.docs.forEach((d) => {
+        const { status: s, ...rest } = d.data() as WeekDoc;
+        weeks.push({ id: d.id, ...(rest as Omit<WeekEntry, 'id'>) });
+        if (s) status[d.id] = s;
+      });
+      weeks.sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)));
+      onData(weeks, status);
+    },
+    (err) => onError(err),
+  );
+}
+
+export async function setWeekStatus(
+  uid: string,
+  week: WeekEntry,
+  status: WeekStatus | null,
+): Promise<void> {
+  await updateDoc(weekDoc(uid, week.id), { status });
+  await logActivity(uid, 'gate', {
+    kind: 'week',
+    label: status
+      ? `${week.id} weekly gate ${status === 'pass' ? 'passed' : 'failed'}`
+      : `${week.id} weekly gate cleared`,
+    hours: 0,
+  });
+}
+
+/** Tick one day of a campaign week. Hours come from the week's planned split. */
+export async function setWeekDayDone(
+  uid: string,
+  week: WeekEntry,
+  dayIndex: number,
+  done: boolean,
+): Promise<void> {
+  const current = week.dayDone ?? week.days.map(() => false);
+  if (current[dayIndex] === done) return;
+  const dayDone = current.map((d, i) => (i === dayIndex ? done : d));
+  await updateDoc(weekDoc(uid, week.id), { dayDone });
+
+  const hours = weekDayHours(week)[dayIndex] ?? 0;
+  const label = week.days[dayIndex] ?? `${week.id} day ${dayIndex + 1}`;
+  await logActivity(uid, 'gate', {
+    kind: 'day',
+    label: `${done ? 'Worked' : 'Cleared'} ${week.id} ${label.slice(0, 60)}`,
+    hours: done ? hours : -hours,
+  });
 }
 
 // ---- Meta ----
 
 export function subscribeMeta(
   uid: string,
+  track: TrackId,
   onData: (meta: Meta | null) => void,
   onError: (err: Error) => void,
 ): Unsubscribe {
   return onSnapshot(
-    metaDoc(uid),
+    metaDoc(uid, track),
     (snap) => onData(snap.exists() ? (snap.data() as Meta) : null),
     (err) => onError(err),
   );
 }
 
-export async function getMeta(uid: string): Promise<Meta | null> {
-  const snap = await getDoc(metaDoc(uid));
+export async function getMeta(uid: string, track: TrackId): Promise<Meta | null> {
+  const snap = await getDoc(metaDoc(uid, track));
   return snap.exists() ? (snap.data() as Meta) : null;
+}
+
+export async function setMeta(
+  uid: string,
+  track: TrackId,
+  meta: Partial<Meta>,
+): Promise<void> {
+  await setDoc(metaDoc(uid, track), meta, { merge: true });
 }
 
 // ---- Weekly reviews ----
 
-export async function addReview(uid: string, review: NewWeeklyReview): Promise<void> {
-  // Use a client-generated doc via setDoc(doc(col)) to keep the return typed.
-  const ref = doc(reviewsCol(uid));
+export async function addReview(
+  uid: string,
+  track: TrackId,
+  review: NewWeeklyReview,
+): Promise<void> {
+  const ref = doc(reviewsCol(uid, track));
   await setDoc(ref, {
     stalled: review.stalled,
     nextObjective: review.nextObjective,
+    builtPct: review.builtPct,
+    previousDone: review.previousDone,
     createdAt: serverTimestamp(),
   });
+  await logActivity(uid, track, {
+    kind: 'review',
+    label: review.nextObjective
+      ? `Weekly review — next: ${review.nextObjective}`
+      : 'Weekly review written',
+    hours: 0,
+  });
+}
+
+/** Answer the "did you do it?" question on an already-saved review. */
+export async function setReviewPreviousDone(
+  uid: string,
+  track: TrackId,
+  reviewId: string,
+  previousDone: boolean | null,
+): Promise<void> {
+  await updateDoc(doc(reviewsCol(uid, track), reviewId), { previousDone });
 }
 
 export function subscribeReviews(
   uid: string,
+  track: TrackId,
   onData: (reviews: WeeklyReview[]) => void,
   onError: (err: Error) => void,
 ): Unsubscribe {
-  const q = query(reviewsCol(uid), orderBy('createdAt', 'desc'));
+  const q = query(reviewsCol(uid, track), orderBy('createdAt', 'desc'));
   return onSnapshot(
     q,
     (snap) => {
@@ -136,6 +435,8 @@ export function subscribeReviews(
         const data = d.data() as {
           stalled?: string;
           nextObjective?: string;
+          builtPct?: number;
+          previousDone?: boolean | null;
           createdAt?: Timestamp | null;
         };
         const created =
@@ -144,6 +445,8 @@ export function subscribeReviews(
           id: d.id,
           stalled: data.stalled ?? '',
           nextObjective: data.nextObjective ?? '',
+          builtPct: data.builtPct ?? 0,
+          previousDone: data.previousDone ?? null,
           createdAt: created,
         };
       });

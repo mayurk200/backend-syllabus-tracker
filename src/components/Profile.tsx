@@ -1,12 +1,14 @@
-import type { Meta, Phase, WeeklyReview } from '../types';
-import { TOTAL_SYLLABUS_HOURS, hoursLogged, isPhaseComplete } from '../types';
+import type { Meta, Phase, TrackDef, WeeklyReview } from '../types';
+import { hoursLogged, isPhaseComplete } from '../types';
 import { Corners } from './Corners';
 
 interface ProfileProps {
   phases: Phase[];
   meta: Meta | null;
+  track: TrackDef;
   reviews: WeeklyReview[];
   onOpenReview: () => void;
+  onOpenReviews: () => void;
   onExport: () => void;
 }
 
@@ -26,8 +28,10 @@ function fmtDate(ms: number): string {
 export function Profile({
   phases,
   meta,
+  track,
   reviews,
   onOpenReview,
+  onOpenReviews,
   onExport,
 }: ProfileProps): JSX.Element {
   const gatesPassed = phases.filter(isPhaseComplete).length;
@@ -37,7 +41,8 @@ export function Profile({
   const settings: Array<{ label: string; value: string; onClick?: () => void }> = [
     { label: 'Weekly target', value: meta ? `${meta.targetHoursPerWeek}h` : '—' },
     { label: 'Start date', value: meta?.startDate ?? '—' },
-    { label: 'Data', value: 'users/me · no login' },
+    { label: 'Track', value: track.name },
+    { label: 'Data', value: `Firestore · users/me/tracks/${track.id}` },
     { label: 'Export', value: 'JSON', onClick: onExport },
   ];
 
@@ -63,7 +68,7 @@ export function Profile({
         <div className="bg-bg p-3">
           <div className="k">Hours</div>
           <div style={{ font: '600 27px/1.1 var(--font-heading)' }}>{totalHours}</div>
-          <div className="k">of {TOTAL_SYLLABUS_HOURS}</div>
+          <div className="k">of {track.totalHours}</div>
         </div>
         <div className="bg-bg p-3">
           <div className="k">Weeks</div>
@@ -87,7 +92,7 @@ export function Profile({
             No reviews yet. Write your first one below.
           </div>
         )}
-        {reviews.map((r) => (
+        {reviews.slice(0, 5).map((r) => (
           <div
             key={r.id}
             className="py-2.5"
@@ -114,9 +119,14 @@ export function Profile({
         ))}
       </div>
 
-      <button className="btn-solid mb-[18px]" onClick={onOpenReview}>
-        Write this week's review
-      </button>
+      <div className="mb-[18px] flex gap-2">
+        <button className="btn-solid" onClick={onOpenReview}>
+          Write this week's review
+        </button>
+        <button className="btn-line" style={{ width: 130 }} onClick={onOpenReviews}>
+          Full log
+        </button>
+      </div>
       </div>
 
       {/* settings */}

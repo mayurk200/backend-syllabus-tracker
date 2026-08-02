@@ -1,45 +1,118 @@
-import { useState } from 'react';
-import type { Phase } from '../types';
-import { hoursLogged, isPhaseComplete } from '../types';
-import { Corners } from './Corners';
+import { useMemo, useState } from 'react';
+import type { Phase, TrackDef } from '../types';
+import { hoursLogged, isPhaseComplete, subtopicCompletion, topicHoursLogged } from '../types';
+import { GATE_LEARN_FROM, GATE_SYLLABUS, chapterSource } from '../data/gateSyllabus';
+import {
+  BACKEND_LEARN_FROM,
+  backendGloss,
+  backendTopicSource,
+} from '../data/backendSyllabus';
+import type { ViewChapter } from './SyllabusParts';
+import { ChapterBlock, LearnFromBlock, SourceLine } from './SyllabusParts';
 
 interface PhaseDetailProps {
   phase: Phase;
-  phases: Phase[]; // for the pip track across all 12
+  phases: Phase[]; // for the pip track across all units
+  track: TrackDef;
   onBack: () => void;
   onToggleTopic: (topicIndex: number, done: boolean) => Promise<void>;
+  onToggleSubtopic: (
+    topicIndex: number,
+    subtopicIndex: number,
+    done: boolean,
+  ) => Promise<void>;
   onToggleGate: (gatePassed: boolean) => Promise<void>;
 }
 
 const ACCENT = '#5980a6';
+const RED = '#a03c3c';
+
+function NewFlag(): JSX.Element {
+  return (
+    <span
+      className="flex-none"
+      style={{
+        font: '600 8.5px var(--font-heading)',
+        letterSpacing: '.12em',
+        color: RED,
+        border: `1px solid ${RED}`,
+        padding: '2px 4px',
+      }}
+    >
+      NEW 2027
+    </span>
+  );
+}
 
 export function PhaseDetail({
   phase,
   phases,
+  track,
   onBack,
   onToggleTopic,
+  onToggleSubtopic,
   onToggleGate,
 }: PhaseDetailProps): JSX.Element {
-  const [busyTopic, setBusyTopic] = useState<number | null>(null);
   const [busyGate, setBusyGate] = useState(false);
+  const [open, setOpen] = useState<number | null>(0);
+  const isGate = track.id === 'gate';
 
-  const topicsDone = phase.topics.filter((t) => t.done).length;
-  const logged = hoursLogged(phase);
+  // On GATE the official syllabus is a different shape from the weekly plan, so
+  // the full scope is worth showing open. On every other roadmap the checklist
+  // above already is the syllabus, so it starts collapsed rather than repeating
+  // itself — same section, sensible default.
+  const [showReference, setShowReference] = useState(isGate);
 
-  const handleTopic = async (index: number, done: boolean): Promise<void> => {
-    setBusyTopic(index);
-    try {
-      await onToggleTopic(index, done);
-    } finally {
-      setBusyTopic(null);
+  /** What to read for this unit. */
+  const learn = isGate ? GATE_LEARN_FROM[phase.id] : BACKEND_LEARN_FROM[phase.title];
+
+  /** Every chapter and concept in this unit, whichever roadmap it belongs to. */
+  const chapters: ViewChapter[] = useMemo(() => {
+    if (isGate) {
+      const unit = GATE_SYLLABUS.find((u) => u.unitId === phase.id);
+      if (!unit) return [];
+      return unit.chapters.map((c) => ({
+        name: c.name,
+        official: c.official,
+        source: chapterSource(phase.id, c.name),
+        concepts: c.concepts.map((x) => ({
+          name: x.name,
+          gloss: x.gloss,
+          isNew: x.isNew,
+          dropped: x.dropped,
+        })),
+      }));
     }
-  };
+    return phase.topics.map((t) => ({
+      name: t.name,
+      official: t.detail,
+      source: backendTopicSource(phase.title, t.name),
+      concepts: t.subtopics.map((s) => ({
+        name: s.name,
+        gloss: backendGloss(s.name),
+        isNew: s.isNew,
+      })),
+    }));
+  }, [isGate, phase]);
+
+  const officialScope = isGate
+    ? GATE_SYLLABUS.find((u) => u.unitId === phase.id)?.official
+    : phase.description;
+  const conceptTotal = chapters.reduce((s, c) => s + c.concepts.length, 0);
+
+  const logged = hoursLogged(phase);
+  const subsTotal = phase.topics.reduce((s, t) => s + t.subtopics.length, 0);
+  const subsDone = phase.topics.reduce(
+    (s, t) => s + t.subtopics.filter((x) => x.done).length,
+    0,
+  );
+  const unitIndex = phases.findIndex((p) => p.id === phase.id) + 1;
 
   const handleGate = async (next: boolean): Promise<void> => {
     if (next === phase.gatePassed) return;
     const msg = next
       ? `Mark the gate for "${phase.title}" as PASSED?\n\nGate: ${phase.gate}\n\nOnly do this once the artifact actually exists.`
-      : `Reopen the gate for "${phase.title}"? This marks the phase incomplete again.`;
+      : `Reopen the gate for "${phase.title}"? This marks it incomplete again.`;
     if (!window.confirm(msg)) return;
     setBusyGate(true);
     try {
@@ -50,152 +123,300 @@ export function PhaseDetail({
   };
 
   return (
-    <div>
+    <div className="space-y-5">
       <button
         onClick={onBack}
-        className="k mb-4"
+        className="k"
         style={{ letterSpacing: '.1em', background: 'transparent' }}
       >
-        ‹ back to progress
+        ‹ back
       </button>
 
-      <div className="blueprint p-4">
-        <Corners />
+      {/* pip track across all units */}
+      <div className="flex gap-1">
+        {phases.map((p) => (
+          <div
+            key={p.id}
+            className="h-1.5 flex-1"
+            style={{
+              background: isPhaseComplete(p)
+                ? ACCENT
+                : p.id === phase.id
+                  ? 'rgba(89,128,166,.45)'
+                  : 'rgba(29,31,32,.16)',
+            }}
+          />
+        ))}
+      </div>
 
-        {/* pip track across all phases */}
-        <div className="mb-4 flex gap-1">
-          {phases.map((p) => (
-            <div
-              key={p.id}
-              className="h-1.5 flex-1"
-              style={{ background: isPhaseComplete(p) ? ACCENT : 'rgba(29,31,32,.16)' }}
-            />
-          ))}
+      {/* ── head ──────────────────────────────────────────────────────── */}
+      <div
+        className="flex flex-wrap items-end justify-between gap-2 pb-3.5"
+        style={{ borderBottom: '1px solid var(--ink)' }}
+      >
+        <div className="min-w-0">
+          <div className="k">
+            {track.unitLabel} {unitIndex} of {phases.length || track.unitCount}
+            {phase.weeks ? ` · ${phase.weeks}` : ''}
+          </div>
+          <div style={{ font: '600 26px/1.05 var(--font-heading)', marginTop: 4 }}>
+            {phase.title}
+          </div>
         </div>
+        <span className="k">
+          {phase.hours}h · {phase.topics.length} topics · {subsTotal} subtopics
+          {phase.targetMarks ? ` · ${phase.targetMarks} marks target` : ''}
+        </span>
+      </div>
 
-        <div className="k">
-          Phase {phase.id} of 12 · gate {phase.gatePassed ? 'passed' : 'open'}
-        </div>
-        <div style={{ font: '600 26px/1.05 var(--font-heading)', margin: '6px 0 4px' }}>
-          {phase.title}
-        </div>
-        <p
-          className="mb-4"
-          style={{ font: '400 12px/1.4 var(--font-body)', color: 'rgba(29,31,32,.6)' }}
-        >
-          {phase.description}
-        </p>
-
-        <div className="md:grid md:grid-cols-[380px_1fr] md:items-start md:gap-7">
-          {/* Left: gate artifact + topics-logged bar */}
-          <div className="md:sticky md:top-4">
-            <div className="bx mb-4 p-3.5">
-              <div className="k mb-2">Gate artifact</div>
-              <div style={{ font: '400 14px/1.45 var(--font-body)' }}>{phase.gate}</div>
-              <div className="mt-3.5 flex gap-2">
-                <button
-                  className="btn-solid"
-                  disabled={busyGate}
-                  onClick={() => void handleGate(true)}
-                  style={
-                    phase.gatePassed ? { background: ACCENT, opacity: 1 } : undefined
-                  }
-                >
-                  {phase.gatePassed ? '✓ passed' : busyGate ? '…' : 'Mark passed'}
-                </button>
+      <div className="grid gap-7 md:grid-cols-[380px_1fr] md:items-start">
+        {/* ── gate + the two numbers ─────────────────────────────────── */}
+        <div className="flex flex-col gap-4 md:sticky md:top-4">
+          <div className="bx p-3.5">
+            <div className="flex items-baseline justify-between">
+              <span className="k">
+                {track.unitLabel} gate — {phase.gatePassed ? 'passed' : 'open'}
+              </span>
+              <span className="k">
+                {phase.gatePassed ? 'complete' : 'not complete'}
+              </span>
+            </div>
+            <p style={{ font: '400 14px/1.5 var(--font-body)', marginTop: 10 }}>
+              {phase.gate}
+            </p>
+            <p
+              className="mt-2"
+              style={{ font: '400 12px/1.45 var(--font-body)', color: 'rgba(29,31,32,.55)' }}
+            >
+              {phase.description}
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                className="btn-solid"
+                style={{ height: 38 }}
+                disabled={busyGate}
+                onClick={() => void handleGate(true)}
+              >
+                {phase.gatePassed ? '✓ gate passed' : busyGate ? '…' : 'Mark gate passed'}
+              </button>
+              {phase.gatePassed && (
                 <button
                   className="btn-line"
-                  style={{ width: 110 }}
+                  style={{ width: 110, height: 38 }}
                   disabled={busyGate}
                   onClick={() => void handleGate(false)}
                 >
-                  Not yet
+                  Reopen
                 </button>
-              </div>
-              <div className="k mt-2" style={{ letterSpacing: '.04em' }}>
-                you advance on the gate, not on hours
-              </div>
+              )}
             </div>
-
-            <div className="bx mb-4 p-3.5">
-              <div className="k mb-2">Topics logged</div>
-              <div className="h-2.5" style={{ background: 'rgba(29,31,32,.14)' }}>
-                <div
-                  className="h-full"
-                  style={{
-                    width: `${phase.hours ? Math.round((logged / phase.hours) * 100) : 0}%`,
-                    background: ACCENT,
-                  }}
-                />
-              </div>
-              <div className="k mt-1.5 flex justify-between">
-                <span>{phase.hours ? Math.round((logged / phase.hours) * 100) : 0}%</span>
-                <span>
-                  {logged}/{phase.hours}h
-                </span>
-              </div>
+            <div className="k mt-2.5" style={{ letterSpacing: '.04em', lineHeight: 1.5 }}>
+              Confirms before writing — checkbox completion never passes a gate.
             </div>
           </div>
 
-          {/* Right: supporting-topic checklist */}
-          <div>
-            <div className="k mb-2">
-              Supporting topics — {topicsDone} of {phase.topics.length} · {logged}/
-              {phase.hours}h
+          <div
+            className="grid grid-cols-2 gap-px border"
+            style={{
+              background: 'rgba(29,31,32,.35)',
+              borderColor: 'rgba(29,31,32,.35)',
+            }}
+          >
+            <div className="bg-bg p-3.5">
+              <div className="k">Subtopics</div>
+              <div style={{ font: '600 24px/1.1 var(--font-heading)' }}>
+                {subsDone}/{subsTotal}
+              </div>
             </div>
-            <div
-              className="flex flex-col gap-px"
-              style={{
-                background: 'rgba(29,31,32,.2)',
-                border: '1px solid rgba(29,31,32,.35)',
-              }}
-            >
-              {phase.topics.map((topic, index) => (
-            <label
-              key={topic.name}
-              className="flex cursor-pointer items-start gap-2.5 bg-bg px-3 py-2.5"
-            >
-              <input
-                type="checkbox"
-                checked={topic.done}
-                disabled={busyTopic === index}
-                onChange={(e) => void handleTopic(index, e.target.checked)}
-                className="sr-only"
-              />
-              <span
-                className="bx mt-0.5 grid h-[15px] w-[15px] flex-none place-items-center"
-                style={{ background: topic.done ? ACCENT : 'transparent' }}
-                aria-hidden
-              />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-baseline justify-between gap-2">
-                  <span
-                    style={{
-                      font: '500 13px var(--font-body)',
-                      color: topic.done ? 'rgba(29,31,32,.45)' : 'var(--ink)',
-                      textDecoration: topic.done ? 'line-through' : 'none',
-                    }}
-                  >
-                    {topic.name}
-                  </span>
-                  <span className="k flex-none">{topic.hours}h</span>
-                </span>
-                <span
-                  className="mt-1 block"
-                  style={{
-                    font: '400 11px/1.4 var(--font-body)',
-                    color: 'rgba(29,31,32,.5)',
-                  }}
-                >
-                  {topic.detail}
-                </span>
-              </span>
-            </label>
-          ))}
+            <div className="bg-bg p-3.5">
+              <div className="k">Hours</div>
+              <div style={{ font: '600 24px/1.1 var(--font-heading)' }}>
+                {logged}/{phase.hours}
+              </div>
             </div>
           </div>
         </div>
+
+        {/* ── topics → subtopics ────────────────────────────────────── */}
+        <div className="min-w-0">
+          <div className="k mb-2">Topics — tap to expand</div>
+          <div style={{ borderTop: '1px solid rgba(29,31,32,.35)' }}>
+            {phase.topics.map((topic, ti) => {
+              const expanded = open === ti;
+              const isNew = topic.subtopics.some((s) => s.isNew);
+              const subsDoneHere = topic.subtopics.filter((s) => s.done).length;
+              return (
+                <div key={topic.name}>
+                  <div
+                    className="flex items-start gap-3 py-2.5"
+                    style={{ borderBottom: '1px solid rgba(29,31,32,.14)' }}
+                  >
+                    <button
+                      className="bx mt-0.5 h-4 w-4 flex-none"
+                      style={{ background: topic.done ? ACCENT : 'transparent' }}
+                      aria-label={topic.done ? 'Untick topic' : 'Tick whole topic'}
+                      onClick={() => void onToggleTopic(ti, !topic.done)}
+                    />
+                    <button
+                      className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                      onClick={() => setOpen(expanded ? null : ti)}
+                    >
+                      <span
+                        className="min-w-0 flex-1"
+                        style={{
+                          font: '500 13px/1.4 var(--font-body)',
+                          color: topic.done ? 'rgba(29,31,32,.45)' : 'var(--ink)',
+                        }}
+                      >
+                        {topic.name}
+                      </span>
+                      {isNew && <NewFlag />}
+                      <span className="k w-[34px] flex-none text-right">
+                        {subsDoneHere}/{topic.subtopics.length}
+                      </span>
+                      <span className="k w-7 flex-none text-right">{topic.hours}h</span>
+                      <span className="k flex-none">{expanded ? '▾' : '▸'}</span>
+                    </button>
+                  </div>
+
+                  {expanded && (
+                    <div
+                      className="my-3 ml-1 pl-3.5"
+                      style={{ borderLeft: `2px solid ${ACCENT}` }}
+                    >
+                      <div className="k mb-1.5">
+                        {topic.detail} · {topic.subtopics.length} subtopics ·{' '}
+                        {topicHoursLogged(topic)}/{topic.hours}h ·{' '}
+                        {subtopicCompletion(topic)}%
+                      </div>
+                      {!isGate && backendTopicSource(phase.title, topic.name) && (
+                        <div className="mb-2">
+                          <SourceLine
+                            source={backendTopicSource(phase.title, topic.name) as string}
+                          />
+                        </div>
+                      )}
+                      <div style={{ borderTop: '1px solid rgba(29,31,32,.35)' }}>
+                        {topic.subtopics.map((s, si) => (
+                          <label
+                            key={s.name}
+                            className="flex cursor-pointer items-start gap-3 py-2"
+                            style={{ borderBottom: '1px solid rgba(29,31,32,.14)' }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={s.done}
+                              onChange={(e) =>
+                                void onToggleSubtopic(ti, si, e.target.checked)
+                              }
+                              className="sr-only"
+                            />
+                            <span
+                              className="bx mt-0.5 h-[14px] w-[14px] flex-none"
+                              style={{ background: s.done ? ACCENT : 'transparent' }}
+                              aria-hidden
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span
+                                className="block"
+                                style={{
+                                  font: '400 13px/1.45 var(--font-body)',
+                                  color: s.done ? 'rgba(29,31,32,.42)' : 'var(--ink)',
+                                }}
+                              >
+                                {s.name}
+                              </span>
+                              {!isGate && backendGloss(s.name) && (
+                                <span
+                                  className="mt-0.5 block"
+                                  style={{
+                                    font: '400 12px/1.5 var(--font-body)',
+                                    color: 'rgba(29,31,32,.55)',
+                                  }}
+                                >
+                                  {backendGloss(s.name)}
+                                </span>
+                              )}
+                            </span>
+                            {s.isNew && <NewFlag />}
+                            <span className="k w-[26px] flex-none text-right">
+                              {s.hours}h
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
+
+      {/* ── everything behind the checklist: what to read, and the full scope ── */}
+      {learn && <LearnFromBlock learn={learn} />}
+
+      {chapters.length > 0 && (
+        <div>
+          <div
+            className="flex flex-wrap items-end justify-between gap-2 pb-3"
+            style={{ borderBottom: '1px solid var(--ink)' }}
+          >
+            <div>
+              <div className="k">
+                {isGate
+                  ? 'Official GATE 2027 scope for this subject'
+                  : `Full scope for this ${track.unitLabel.toLowerCase()}`}
+              </div>
+              <div style={{ font: '600 19px/1.15 var(--font-heading)', marginTop: 4 }}>
+                Syllabus in full
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="k">
+                {chapters.length} chapters · {conceptTotal} concepts
+              </span>
+              <button
+                className="btn-line"
+                style={{ height: 28, paddingLeft: 10, paddingRight: 10 }}
+                onClick={() => setShowReference(!showReference)}
+              >
+                {showReference ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </div>
+
+          {showReference && (
+            <div className="pt-4">
+              {officialScope && (
+                <blockquote
+                  className="mb-5 py-1 pl-3.5"
+                  style={{
+                    borderLeft: `2px solid ${ACCENT}`,
+                    font: '400 12.5px/1.6 var(--font-body)',
+                    color: 'rgba(29,31,32,.7)',
+                    margin: 0,
+                  }}
+                >
+                  {officialScope}
+                </blockquote>
+              )}
+              {chapters.map((c) => (
+                <ChapterBlock key={c.name} chapter={c} />
+              ))}
+              <p
+                className="k"
+                style={{ letterSpacing: '.04em', lineHeight: 1.6, textTransform: 'none' }}
+              >
+                {isGate
+                  ? 'The checklist above is the campaign plan — one subtopic per study day. The list here is the syllabus itself. They cover the same ground in different shapes, which is why only the checklist carries ticks.'
+                  : 'The same ground as the checklist above, read straight through without the checkboxes — and with the book chapter named for every topic.'}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

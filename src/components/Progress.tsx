@@ -1,15 +1,11 @@
-import type { Meta, Phase } from '../types';
-import {
-  TOTAL_SYLLABUS_HOURS,
-  hoursLogged,
-  isPhaseComplete,
-  topicCompletion,
-} from '../types';
+import type { Meta, Phase, TrackDef } from '../types';
+import { hoursLogged, isPhaseComplete, topicCompletion } from '../types';
 import { Corners } from './Corners';
 
 interface ProgressProps {
   phases: Phase[];
   meta: Meta | null;
+  track: TrackDef;
   onSelectPhase: (phaseId: number) => void;
 }
 
@@ -25,14 +21,20 @@ function weeksSince(startDate: string | undefined): number {
   return Math.max(1, Math.floor((Date.now() - start) / (7 * 86_400_000)));
 }
 
-export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.Element {
+export function Progress({
+  phases,
+  meta,
+  track,
+  onSelectPhase,
+}: ProgressProps): JSX.Element {
   const gatesPassed = phases.filter(isPhaseComplete).length;
   const totalHours = phases.reduce((sum, p) => sum + hoursLogged(p), 0);
-  const allTopics = phases.flatMap((p) => p.topics);
-  const topicsDone = allTopics.filter((t) => t.done).length;
+  const allSubs = phases.flatMap((p) => p.topics.flatMap((t) => t.subtopics));
+  const subsDone = allSubs.filter((s) => s.done).length;
   const topicPct =
-    allTopics.length === 0 ? 0 : Math.round((topicsDone / allTopics.length) * 100);
+    allSubs.length === 0 ? 0 : Math.round((subsDone / allSubs.length) * 100);
   const week = weeksSince(meta?.startDate);
+  const unitCount = phases.length || track.unitCount;
 
   return (
     <div className="space-y-6">
@@ -40,7 +42,7 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
       <div className="blueprint p-4">
         <Corners />
         <div className="mb-3.5 flex items-baseline justify-between">
-          <span className="h">PROGRESS</span>
+          <span className="h">{track.shortName.toUpperCase()} — PROGRESS</span>
           <span className="k">{week ? `week ${week}` : 'not started'}</span>
         </div>
 
@@ -52,7 +54,7 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
           <div className="bg-bg p-3">
             <div className="k">Output — gates</div>
             <div style={{ font: '600 34px/1 var(--font-heading)', color: ACCENT }}>
-              {gatesPassed}/12
+              {gatesPassed}/{unitCount}
             </div>
             <div className="k" style={{ letterSpacing: '.06em' }}>
               the only real measure
@@ -62,15 +64,18 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
             <div className="k">Input — hours</div>
             <div style={{ font: '600 20px/1.2 var(--font-heading)', color: MUTED }}>
               {totalHours}
-              <span style={{ fontSize: 15 }}>/{TOTAL_SYLLABUS_HOURS}</span>
+              <span style={{ fontSize: 15 }}>/{track.totalHours}</span>
             </div>
             <div className="k" style={{ letterSpacing: '.06em' }}>
-              {topicPct}% topics checked
+              {topicPct}% subtopics checked
             </div>
           </div>
           <div className="hidden bg-bg p-3 md:block">
-            <div className="k">Topics</div>
-            <div style={{ font: '600 27px/1.1 var(--font-heading)' }}>{topicPct}%</div>
+            <div className="k">Subtopics</div>
+            <div style={{ font: '600 27px/1.1 var(--font-heading)' }}>
+              {subsDone}
+              <span style={{ fontSize: 15, color: MUTED }}>/{allSubs.length}</span>
+            </div>
           </div>
           <div className="hidden bg-bg p-3 md:block">
             <div className="k">Pace</div>
@@ -80,7 +85,9 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
           </div>
         </div>
 
-        <div className="k mb-2">Phase matrix — fill = topics · cap = gate</div>
+        <div className="k mb-2">
+          {track.unitLabel} matrix — fill = subtopics · cap = gate
+        </div>
         <div className="grid grid-cols-4 gap-1.5">
           {phases.map((p) => {
             const pct = topicCompletion(p);
@@ -90,7 +97,7 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
                 key={p.id}
                 onClick={() => onSelectPhase(p.id)}
                 className="bx relative h-[52px] overflow-hidden"
-                title={`Phase ${p.id} — ${p.title}`}
+                title={`${track.unitLabel} ${p.id} — ${p.title} (${p.hours}h)`}
               >
                 <div
                   className="absolute inset-x-0 bottom-0"
@@ -113,7 +120,7 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
       </div>
 
       {/* Ratio — shown as principle/target, not a fabricated number */}
-      <div className="blueprint p-4">
+      <div className="blueprint p-4" hidden={track.id !== 'backend'}>
         <Corners />
         <div className="k mb-2">Ratio — build vs read</div>
         <div className="flex h-3.5">
@@ -141,7 +148,9 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
         <Corners />
         <div className="mb-3 flex items-baseline justify-between">
           <span className="h">GATE LADDER</span>
-          <span className="k">{gatesPassed} of 12 gates</span>
+          <span className="k">
+            {gatesPassed} of {unitCount} gates
+          </span>
         </div>
         <div className="md:grid md:grid-cols-2 md:gap-x-7">
           {phases.map((p) => {
@@ -168,7 +177,8 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
                   <div className="flex items-baseline justify-between gap-2">
                     <span style={{ font: '500 13px var(--font-body)' }}>{p.title}</span>
                     <span className="k" style={{ color: passed ? ACCENT : undefined }}>
-                      {passed ? 'PASSED' : 'OPEN'}
+                      {p.targetMarks ? `${p.targetMarks} marks · ` : ''}
+                      {p.hours}h · {passed ? 'PASSED' : 'OPEN'}
                     </span>
                   </div>
                   <div className="mt-1.5 h-1" style={{ background: BARBG }}>
