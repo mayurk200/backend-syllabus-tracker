@@ -86,46 +86,71 @@ export function PhaseDetail({
           {phase.description}
         </p>
 
-        {/* Gate artifact box */}
-        <div className="bx mb-4 p-3.5">
-          <div className="k mb-2">Gate artifact</div>
-          <div style={{ font: '400 14px/1.45 var(--font-body)' }}>{phase.gate}</div>
-          <div className="mt-3.5 flex gap-2">
-            <button
-              className="btn-solid"
-              disabled={busyGate}
-              onClick={() => void handleGate(true)}
-              style={
-                phase.gatePassed
-                  ? { background: ACCENT, opacity: 1 }
-                  : undefined
-              }
-            >
-              {phase.gatePassed ? '✓ passed' : busyGate ? '…' : 'Mark passed'}
-            </button>
-            <button
-              className="btn-line"
-              style={{ width: 110 }}
-              disabled={busyGate}
-              onClick={() => void handleGate(false)}
-            >
-              Not yet
-            </button>
-          </div>
-          <div className="k mt-2" style={{ letterSpacing: '.04em' }}>
-            you advance on the gate, not on hours
-          </div>
-        </div>
+        <div className="md:grid md:grid-cols-[380px_1fr] md:items-start md:gap-7">
+          {/* Left: gate artifact + topics-logged bar */}
+          <div className="md:sticky md:top-4">
+            <div className="bx mb-4 p-3.5">
+              <div className="k mb-2">Gate artifact</div>
+              <div style={{ font: '400 14px/1.45 var(--font-body)' }}>{phase.gate}</div>
+              <div className="mt-3.5 flex gap-2">
+                <button
+                  className="btn-solid"
+                  disabled={busyGate}
+                  onClick={() => void handleGate(true)}
+                  style={
+                    phase.gatePassed ? { background: ACCENT, opacity: 1 } : undefined
+                  }
+                >
+                  {phase.gatePassed ? '✓ passed' : busyGate ? '…' : 'Mark passed'}
+                </button>
+                <button
+                  className="btn-line"
+                  style={{ width: 110 }}
+                  disabled={busyGate}
+                  onClick={() => void handleGate(false)}
+                >
+                  Not yet
+                </button>
+              </div>
+              <div className="k mt-2" style={{ letterSpacing: '.04em' }}>
+                you advance on the gate, not on hours
+              </div>
+            </div>
 
-        {/* Supporting topics */}
-        <div className="k mb-2">
-          Supporting topics — {topicsDone} of {phase.topics.length} · {logged}/{phase.hours}h
-        </div>
-        <div
-          className="flex flex-col gap-px"
-          style={{ background: 'rgba(29,31,32,.2)', border: '1px solid rgba(29,31,32,.35)' }}
-        >
-          {phase.topics.map((topic, index) => (
+            <div className="bx mb-4 p-3.5">
+              <div className="k mb-2">Topics logged</div>
+              <div className="h-2.5" style={{ background: 'rgba(29,31,32,.14)' }}>
+                <div
+                  className="h-full"
+                  style={{
+                    width: `${phase.hours ? Math.round((logged / phase.hours) * 100) : 0}%`,
+                    background: ACCENT,
+                  }}
+                />
+              </div>
+              <div className="k mt-1.5 flex justify-between">
+                <span>{phase.hours ? Math.round((logged / phase.hours) * 100) : 0}%</span>
+                <span>
+                  {logged}/{phase.hours}h
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: supporting-topic checklist */}
+          <div>
+            <div className="k mb-2">
+              Supporting topics — {topicsDone} of {phase.topics.length} · {logged}/
+              {phase.hours}h
+            </div>
+            <div
+              className="flex flex-col gap-px"
+              style={{
+                background: 'rgba(29,31,32,.2)',
+                border: '1px solid rgba(29,31,32,.35)',
+              }}
+            >
+              {phase.topics.map((topic, index) => (
             <label
               key={topic.name}
               className="flex cursor-pointer items-start gap-2.5 bg-bg px-3 py-2.5"
@@ -167,6 +192,8 @@ export function PhaseDetail({
               </span>
             </label>
           ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

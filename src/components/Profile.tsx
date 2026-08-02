@@ -71,7 +71,9 @@ export function Profile({
         </div>
       </div>
 
+      <div className="md:grid md:grid-cols-2 md:items-start md:gap-7">
       {/* weekly reviews */}
+      <div>
       <div className="k mb-2">Weekly reviews</div>
       <div
         className="mb-[18px] flex flex-col"
@@ -115,8 +117,10 @@ export function Profile({
       <button className="btn-solid mb-[18px]" onClick={onOpenReview}>
         Write this week's review
       </button>
+      </div>
 
       {/* settings */}
+      <div>
       <div className="k mb-2">Settings</div>
       <div style={{ borderTop: '1px solid rgba(29,31,32,.35)' }}>
         {settings.map((s) => {
@@ -150,6 +154,8 @@ export function Profile({
             </div>
           );
         })}
+      </div>
+      </div>
       </div>
     </div>
   );

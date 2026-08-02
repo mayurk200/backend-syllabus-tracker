@@ -46,7 +46,7 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
 
         {/* Output (gates) emphasized over input (hours) — advance on the gate */}
         <div
-          className="mb-4 grid grid-cols-2 gap-px border"
+          className="mb-4 grid grid-cols-2 gap-px border md:grid-cols-4"
           style={{ background: 'rgba(29,31,32,.35)', borderColor: 'rgba(29,31,32,.35)' }}
         >
           <div className="bg-bg p-3">
@@ -66,6 +66,16 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
             </div>
             <div className="k" style={{ letterSpacing: '.06em' }}>
               {topicPct}% topics checked
+            </div>
+          </div>
+          <div className="hidden bg-bg p-3 md:block">
+            <div className="k">Topics</div>
+            <div style={{ font: '600 27px/1.1 var(--font-heading)' }}>{topicPct}%</div>
+          </div>
+          <div className="hidden bg-bg p-3 md:block">
+            <div className="k">Pace</div>
+            <div style={{ font: '600 27px/1.1 var(--font-heading)' }}>
+              {meta ? `${meta.targetHoursPerWeek}h/wk` : '—'}
             </div>
           </div>
         </div>
@@ -133,7 +143,7 @@ export function Progress({ phases, meta, onSelectPhase }: ProgressProps): JSX.El
           <span className="h">GATE LADDER</span>
           <span className="k">{gatesPassed} of 12 gates</span>
         </div>
-        <div className="flex flex-col">
+        <div className="md:grid md:grid-cols-2 md:gap-x-7">
           {phases.map((p) => {
             const pct = topicCompletion(p);
             const passed = isPhaseComplete(p);
