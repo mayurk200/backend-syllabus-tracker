@@ -7,7 +7,7 @@ complete when its gate artifact exists, no matter how many topics are checked.
 
 - **Stack:** Vite + React + TypeScript, Tailwind (no component library)
 - **Backend:** Firebase — Firestore for data, Firebase Auth (Google) for a single user
-- **Hosting:** Firebase Hosting
+- **Hosting:** Netlify
 - **Access control:** Firestore security rules locked to your UID only
 
 ---
@@ -88,29 +88,33 @@ The rules allow reads/writes under `users/{uid}/**` **only** when the caller is
 authenticated, the path UID matches the caller, and the caller's UID equals your
 hardcoded UID. Everything else is denied.
 
-## 6. Deploy to Firebase Hosting
+## 6. Deploy to Netlify
 
-First-time setup (once per machine/project):
+Firebase is used only for data + auth; hosting is Netlify. Pick one method.
+
+**A. Git-based (recommended — auto-deploys on every push):**
+
+1. Push the repo to GitHub (already done).
+2. <https://app.netlify.com> → **Add new site → Import an existing project** → pick
+   this repo.
+3. Build settings are auto-detected from `netlify.toml` (build `npm run build`,
+   publish `dist`). Leave them as-is.
+4. **Site configuration → Environment variables** → add the six `VITE_FIREBASE_*`
+   values from your `.env`. Netlify builds in the cloud, so it needs them at build
+   time (they're public client identifiers, not secrets).
+5. Deploy. Every push to `main` now rebuilds and redeploys automatically.
+
+**B. Netlify CLI:**
 
 ```bash
-firebase login
-firebase use --add        # select your project, alias it "default"
+npm install -g netlify-cli
+netlify login
+netlify deploy --build --prod
 ```
 
-Then build and deploy:
-
-```bash
-npm run build
-firebase deploy --only hosting
-```
-
-Or both hosting + rules at once:
-
-```bash
-npm run deploy            # runs build, then `firebase deploy`
-```
-
-Your app will be live at `https://<project-id>.web.app`.
+After the first deploy, add your Netlify domain (e.g. `your-site.netlify.app`) to
+Firebase Console → **Authentication → Settings → Authorized domains** so Google
+sign-in works on the live site.
 
 ---
 
@@ -146,4 +150,3 @@ complete from topic completion alone — only `gatePassed` does that.
 | `npm run build`     | Type-check and build to `dist/`           |
 | `npm run preview`   | Preview the production build locally       |
 | `npm run typecheck` | Type-check only                            |
-| `npm run deploy`    | Build then `firebase deploy`               |
