@@ -18,6 +18,7 @@ import { db } from './firebase';
 import { SEED_PHASES, verifySeedHours } from '../data/seedData';
 import { GATE_SUBJECTS, verifyGateHours } from '../data/gateData';
 import { GATE_WEEKS } from '../data/gateWeeks';
+import { linkForDay, linkForSubtopic } from '../data/gateLinks';
 import type {
   ActivityEvent,
   Meta,
@@ -32,7 +33,12 @@ import type {
   WeekStatus,
   WeekStatusMap,
 } from '../types';
-import { topicDoneFromSubtopics, topicHoursLogged, weekDayHours } from '../types';
+import {
+  topicDoneFromSubtopics,
+  topicHoursLogged,
+  weekDayHours,
+  weekIsComplete,
+} from '../types';
 
 /**
  * Firestore is the source of truth. The files under src/data are a one-time
@@ -261,6 +267,62 @@ async function writeTopics(
   }
 }
 
+/**
+ * The same day of study exists twice on the GATE track — as a campaign day and
+ * as a subject subtopic. These two keep the pair in step, so a tick made on
+ * either page shows up on the other. Both write directly rather than calling
+ * the public setters, which is what stops them calling each other back.
+ */
+async function mirrorDayToSubtopic(
+  uid: string,
+  weekId: string,
+  dayIndex: number,
+  done: boolean,
+): Promise<void> {
+  const link = linkForDay(weekId, dayIndex);
+  if (!link) return;
+
+  const ref = phaseDoc(uid, 'gate', link.unitId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+
+  const data = snap.data() as PhaseDoc;
+  const target = data.topics[link.topicIndex]?.subtopics[link.subtopicIndex];
+  if (!target || target.done === done) return;
+
+  const topics = data.topics.map((t, i) => {
+    if (i !== link.topicIndex) return t;
+    const subtopics = t.subtopics.map((s, j) =>
+      j === link.subtopicIndex ? { ...s, done } : s,
+    );
+    const next = { ...t, subtopics };
+    return { ...next, done: topicDoneFromSubtopics(next) };
+  });
+  await updateDoc(ref, { topics, gatePassed: everythingDone(topics) });
+}
+
+async function mirrorSubtopicToDay(
+  uid: string,
+  unitId: number,
+  topicIndex: number,
+  subtopicIndex: number,
+  done: boolean,
+): Promise<void> {
+  const link = linkForSubtopic(unitId, topicIndex, subtopicIndex);
+  if (!link) return;
+
+  const ref = weekDoc(uid, link.weekId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+
+  const data = snap.data() as WeekDoc;
+  const current = data.dayDone ?? (data.days ?? []).map(() => false);
+  if (current[link.dayIndex] === done) return;
+
+  const dayDone = current.map((d, i) => (i === link.dayIndex ? done : d));
+  await updateDoc(ref, { dayDone });
+}
+
 /** Tick or untick a single subtopic; the parent topic's flag is recomputed. */
 export async function setSubtopicDone(
   uid: string,
@@ -287,6 +349,9 @@ export async function setSubtopicDone(
     hours: done ? subtopic.hours : -subtopic.hours,
   });
   await writeTopics(uid, track, phase, topics);
+  if (track === 'gate') {
+    await mirrorSubtopicToDay(uid, phase.id, topicIndex, subtopicIndex, done);
+  }
 }
 
 /** Tick or untick a whole topic — cascades to every subtopic under it. */
@@ -374,6 +439,40 @@ export async function setWeekDayDone(
     label: `${done ? 'Worked' : 'Cleared'} ${week.id} ${label.slice(0, 60)}`,
     hours: done ? hours : -hours,
   });
+  await mirrorDayToSubtopic(uid, week.id, dayIndex, done);
+}
+
+/**
+ * Mark every campaign week whose end has passed with work still outstanding.
+ * `missedAt` is written once and never cleared — catching up later still counts,
+ * but the slip stays on the record. Safe to call on every load.
+ */
+export async function sweepMissedWeeks(
+  uid: string,
+  weeks: WeekEntry[],
+  now = Date.now(),
+): Promise<void> {
+  const overdue = weeks.filter(
+    (w) =>
+      !w.missedAt &&
+      new Date(`${w.end}T23:59:59`).getTime() < now &&
+      !weekIsComplete(w),
+  );
+  if (overdue.length === 0) return;
+
+  const batch = writeBatch(db);
+  for (const w of overdue) {
+    batch.update(weekDoc(uid, w.id), { missedAt: now });
+  }
+  await batch.commit();
+
+  for (const w of overdue) {
+    await logActivity(uid, 'gate', {
+      kind: 'week',
+      label: `${w.id} missed — ${w.title}`,
+      hours: 0,
+    });
+  }
 }
 
 // ---- Meta ----

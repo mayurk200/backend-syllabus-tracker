@@ -18,6 +18,7 @@ import type {
   WeekStatus,
 } from './types';
 import { TRACKS, hoursLogged, isPhaseComplete, trackDef } from './types';
+import { Backlog } from './components/Backlog';
 import { Dashboard } from './components/Dashboard';
 import { Progress } from './components/Progress';
 import { PhaseDetail } from './components/PhaseDetail';
@@ -28,6 +29,7 @@ import { Syllabus } from './components/Syllabus';
 import { Timeline } from './components/Timeline';
 import { Sidebar, type Tab } from './components/Sidebar';
 import { GATE_SYLLABUS, countConcepts } from './data/gateSyllabus';
+import { buildBacklog } from './lib/backlog';
 
 // No login. Single-user app: all data lives under one fixed id in Firestore.
 // This must match the id allowed in firestore.rules.
@@ -39,6 +41,7 @@ const MOBILE_TABS: Array<{ id: Tab; label: string; gateOnly?: boolean }> = [
   { id: 'progress', label: 'Progress' },
   { id: 'syllabus', label: 'Syllabus' },
   { id: 'timeline', label: 'Timeline', gateOnly: true },
+  { id: 'backlog', label: 'Backlog' },
   { id: 'profile', label: 'Profile' },
 ];
 
@@ -176,6 +179,10 @@ export default function App(): JSX.Element {
   const conceptCount =
     trackId === 'gate' ? countConcepts(GATE_SYLLABUS) : allSubs.length;
 
+  const backlogCount = buildBacklog(trackId, phases, weeks).filter(
+    (i) => !i.completedLate,
+  ).length;
+
   // Timeline only exists on the GATE track — fall back rather than blank out.
   const activeTab: Tab = tab === 'timeline' && trackId !== 'gate' ? 'dashboard' : tab;
 
@@ -210,6 +217,16 @@ export default function App(): JSX.Element {
         );
       case 'syllabus':
         return <Syllabus track={track} phases={phases} onSelectPhase={goPhase} />;
+      case 'backlog':
+        return (
+          <Backlog
+            track={track}
+            phases={phases}
+            weeks={weeks}
+            onSelectPhase={goPhase}
+            onOpenTimeline={() => goTab('timeline')}
+          />
+        );
       case 'reviews':
         return (
           <Reviews
@@ -268,6 +285,7 @@ export default function App(): JSX.Element {
         track={track}
         phases={phases}
         conceptCount={conceptCount}
+        backlogCount={backlogCount}
         selectedPhaseId={selectedPhaseId}
         gatesPassed={gatesPassed}
         totalHours={totalHours}

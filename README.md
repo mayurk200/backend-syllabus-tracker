@@ -151,7 +151,7 @@ users/me/tracks/{trackId}/phases/{phaseId} -> { title, hours, description, gate,
                                                   subtopics: [{ name, hours, done, isNew? }] }] }
 users/me/tracks/gate/weeks/{weekId}        -> { title, dates, start, end, phase, kind,
                                                 hours, days[], dayDone[], gate,
-                                                milestone?, status }
+                                                milestone?, status, missedAt }
 users/me/tracks/{trackId}/meta/profile     -> { targetHoursPerWeek, startDate }
 users/me/tracks/{trackId}/meta/seed        -> { version, at }
 users/me/tracks/{trackId}/reviews/{autoId} -> { stalled, nextObjective, builtPct,
@@ -173,6 +173,21 @@ recomputes them. Both transitions are recorded in the activity log.
 
 "Hours logged" = the sum of hours from **subtopics** you've marked done (input
 measure), shown against the track's fixed total.
+
+**One tick, both places.** On the GATE track the same day of study exists twice
+— as a day of a campaign week on the Timeline, and as a subtopic inside its
+subject. `src/data/gateLinks.ts` links the two positionally (every week has 7
+days, every core-week topic has 6 subtopics, so day 0–5 ↔ subtopic 0–5 and
+Sunday has no counterpart), and ticking either one writes the other. 108 links
+across the 18 core weeks W1–W18; setup, revision, mock and taper weeks are
+campaign-only. Only the originating tick logs its hours, so nothing double-counts.
+
+**Missing a week is recorded, permanently.** Once a campaign week's end passes
+with study days still unticked, `missedAt` is written to that week and never
+cleared. Finishing the work afterwards still counts — the week shows "caught up
+late" rather than disappearing. The Backlog page derives the same thing straight
+from the dates, so a week that has just closed shows immediately, before the
+sweep that persists it has run.
 
 **Every tick writes an event.** Ticking a subtopic, closing a topic, passing a
 gate, working a campaign day or saving a review appends one document to
@@ -211,10 +226,16 @@ estimate — nothing on those charts is inferred.
    weekly plan, and collapsed elsewhere, where the checklist above already is the
    syllabus. Backend subtopics additionally carry their explanation inline, next
    to the checkbox you tick.
-6. **Weekly review** — a full writing screen (not a cramped modal): what
+6. **Backlog** — what is behind, oldest miss first. On GATE that is every
+   campaign week that closed with days still open, each expanded into the
+   individual days outstanding, with weeks you finished late still listed and
+   marked as such. On roadmaps with no dates it is positional instead: anything
+   unticked in a unit you have already moved past. Rows are not editable — each
+   links to the page where the work actually gets ticked.
+7. **Weekly review** — a full writing screen (not a cramped modal): what
    stalled, the next single objective, a drag-to-set build/read split, what last
    week said with a did-it / didn't answer, and the week's real hours.
-7. **Reviews** — the honest log: pace per week against your target, and every
+8. **Reviews** — the honest log: pace per week against your target, and every
    review as a row, filterable to the weeks you missed target or passed a gate.
 
 ## Where the content comes from

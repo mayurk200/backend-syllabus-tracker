@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { WeekEntry, WeekStatus, WeekStatusMap } from '../types';
-import { dayBody, dayLabel, weekDayHours, weekHoursDone } from '../types';
+import {
+  dayBody,
+  dayLabel,
+  weekDayHours,
+  weekHoursDone,
+  weekIsComplete,
+} from '../types';
 import { Corners } from './Corners';
 
 interface TimelineProps {
@@ -416,6 +422,12 @@ export function Timeline({
                   </div>
                   <div className="k mt-1" style={{ letterSpacing: '.05em' }}>
                     {w.dates} · {weekHoursDone(w)}/{w.hours}h {isCurrent && '· now'}
+                    {w.missedAt && (
+                      <span style={{ color: weekIsComplete(w) ? ACCENT : RED }}>
+                        {' '}
+                        · {weekIsComplete(w) ? 'caught up late' : 'missed'}
+                      </span>
+                    )}
                   </div>
                 </div>
               </button>

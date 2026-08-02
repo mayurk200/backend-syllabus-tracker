@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   seedIfEmpty,
   subscribeActivity,
   subscribeMeta,
   subscribePhases,
   subscribeWeeks,
+  sweepMissedWeeks,
 } from '../lib/db';
 import type {
   ActivityEvent,
@@ -41,10 +42,12 @@ export function useTrackerData(uid: string | null, track: TrackId): TrackerData 
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const sweptRef = useRef(false);
 
   useEffect(() => {
     if (!uid) return;
     let cancelled = false;
+    sweptRef.current = false;
     setLoading(true);
     setError(null);
     setPhases([]);
@@ -73,6 +76,15 @@ export function useTrackerData(uid: string | null, track: TrackId): TrackerData 
             (w, s) => {
               setWeeks(w);
               setWeekStatus(s);
+              // Mark anything the calendar has already overtaken. Guarded so it
+              // runs once per mount rather than on every snapshot — including
+              // the snapshot its own writes produce.
+              if (!sweptRef.current && w.length > 0) {
+                sweptRef.current = true;
+                void sweepMissedWeeks(uid, w).catch((e: unknown) =>
+                  console.error('missed-week sweep failed', e),
+                );
+              }
             },
             (e) => setError(e.message),
           ),

@@ -103,6 +103,18 @@ export interface WeekEntry {
   milestone?: string; // 'M1', 'M4', … when a major milestone lands this week
   /** Which of the seven days have been worked, parallel to `days`. */
   dayDone?: boolean[];
+  /**
+   * Epoch millis at which this week's end passed with work still outstanding.
+   * Written once and kept: finishing the work later marks it done but does not
+   * erase the fact that it slipped.
+   */
+  missedAt?: number | null;
+}
+
+/** A week is missed once its end has passed with any study day still unticked. */
+export function weekIsComplete(week: WeekEntry): boolean {
+  const done = week.dayDone ?? [];
+  return week.days.every((_, i) => (i === 6 ? true : (done[i] ?? false)));
 }
 
 /**
@@ -176,6 +188,28 @@ export interface ActivityEvent {
 }
 
 export type NewActivityEvent = Omit<ActivityEvent, 'id'>;
+
+// ---- Backlog ----
+
+/**
+ * Work that is behind. On GATE that means a campaign week whose end passed with
+ * days still unticked; on tracks without dates it means anything left unticked
+ * in a unit you have already moved past.
+ */
+export interface BacklogItem {
+  id: string;
+  kind: 'week' | 'day' | 'subtopic';
+  title: string;
+  detail: string;
+  hours: number;
+  /** Unit to open when the item is tapped, when there is one. */
+  unitId?: number;
+  weekId?: string;
+  /** When it was missed. Null on tracks with no dates. */
+  missedAt: number | null;
+  /** Ticked after it had already been missed. */
+  completedLate: boolean;
+}
 
 /** Local Monday 00:00 of the week containing `ts`. */
 export function startOfWeek(ts: number): number {

@@ -6,6 +6,7 @@ export type Tab =
   | 'progress'
   | 'syllabus'
   | 'timeline'
+  | 'backlog'
   | 'reviews'
   | 'review'
   | 'profile';
@@ -15,6 +16,7 @@ interface SidebarProps {
   track: TrackDef;
   phases: Phase[];
   conceptCount: number;
+  backlogCount: number;
   selectedPhaseId: number | null;
   gatesPassed: number;
   totalHours: number;
@@ -41,6 +43,7 @@ export function Sidebar({
   track,
   phases,
   conceptCount,
+  backlogCount,
   selectedPhaseId,
   gatesPassed,
   totalHours,
@@ -61,6 +64,7 @@ export function Sidebar({
     ...(track.id === 'gate'
       ? [{ id: 'timeline' as Tab, name: 'Timeline', count: `${weeksPassed}/28` }]
       : []),
+    { id: 'backlog', name: 'Backlog', count: backlogCount ? `${backlogCount}` : '—' },
     { id: 'reviews', name: 'Reviews', count: `${reviewsCount}` },
     { id: 'profile', name: 'Profile', count: `${totalHours}h` },
   ];
