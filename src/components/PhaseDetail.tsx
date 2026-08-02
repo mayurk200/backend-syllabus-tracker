@@ -197,7 +197,7 @@ export function PhaseDetail({
                 disabled={busyGate}
                 onClick={() => void handleGate(true)}
               >
-                {phase.gatePassed ? '✓ gate passed' : busyGate ? '…' : 'Mark gate passed'}
+                {phase.gatePassed ? '✓ Gate passed' : busyGate ? '…' : 'Mark gate passed'}
               </button>
               {phase.gatePassed && (
                 <button

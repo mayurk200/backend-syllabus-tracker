@@ -298,7 +298,7 @@ export function Timeline({
                     void handleStatus(current, currentStatus === 'pass' ? null : 'pass')
                   }
                 >
-                  Pass
+                  {currentStatus === 'pass' ? '✓ Passed' : 'Mark passed'}
                 </button>
                 <button
                   className="btn-line"
@@ -315,7 +315,7 @@ export function Timeline({
                     void handleStatus(current, currentStatus === 'fail' ? null : 'fail')
                   }
                 >
-                  Fail
+                  {currentStatus === 'fail' ? '✗ Failed' : 'Mark failed'}
                 </button>
               </div>
             </div>
@@ -472,7 +472,7 @@ export function Timeline({
                       disabled={busy === w.id}
                       onClick={() => void handleStatus(w, s === 'pass' ? null : 'pass')}
                     >
-                      {s === 'pass' ? '✓ passed' : 'Gate passed'}
+                      {s === 'pass' ? '✓ Passed' : 'Mark passed'}
                     </button>
                     <button
                       className="btn-line"
@@ -485,7 +485,7 @@ export function Timeline({
                       disabled={busy === w.id}
                       onClick={() => void handleStatus(w, s === 'fail' ? null : 'fail')}
                     >
-                      {s === 'fail' ? '✗ failed' : 'Gate failed'}
+                      {s === 'fail' ? '✗ Failed' : 'Mark failed'}
                     </button>
                   </div>
                 </div>
