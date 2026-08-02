@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-bg text-neutral-200 font-sans antialiased;
+    margin: 0;
+    min-height: 100dvh;
+    /* respect iOS safe areas for night-on-phone use */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-border bg-surface p-4;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-2 active:bg-accent-2;
+  }
+  .btn-ghost {
+    @apply btn border border-border bg-surface-2 text-neutral-200 hover:bg-border;
+  }
+}

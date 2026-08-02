@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// Single-user lockdown.
+// Replace YOUR_UID_HERE with your Firebase Auth UID (see README → "Set the security rules").
+// Every read and write under users/{uid}/** is allowed ONLY when the caller is
+// authenticated AND their uid matches both the requested document path AND your
+// hardcoded UID. Everything else on the project is denied by default.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null
+        && request.auth.uid == uid
+        && request.auth.uid == 'YOUR_UID_HERE';
+    }
+
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      match /{document=**} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+  }
+}
