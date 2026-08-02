@@ -1,9 +1,10 @@
 # Syllabus Tracker
 
 A single-user, mobile-first progress tracker for **two tracks**, built to be
-used at night on a phone. The core rule it enforces: **you advance on the gate,
-not on hours spent** — a unit is only complete when its gate artifact exists,
-no matter how many topics are checked.
+used at night on a phone. A unit is **complete when everything in it is ticked**
+— completion is derived from the checklist, not declared by a button. Each unit
+still states its gate artifact, so the standard for ticking a subtopic is "I
+could produce this", not "I have read about this".
 
 | Track | Content | Hours | Units |
 | ----- | ------- | ----- | ----- |
@@ -162,10 +163,13 @@ Legacy v1 data at `users/me/phases/*` is migrated automatically on first load:
 ticked topics and passed gates are carried across to the backend track, and the
 old documents are left in place as a safety net.
 
-**Subtopic % and gate status are tracked separately.** The UI never marks a unit
-complete from checkbox completion alone — only `gatePassed` does that. Ticking a
-parent topic cascades to its subtopics; ticking every subtopic marks the parent
-done.
+**Completion is derived from the checklist.** Ticking a parent topic cascades to
+its subtopics; ticking every subtopic marks the parent done; ticking every
+subtopic in a unit writes `gatePassed: true` on that unit, and unticking any one
+of them clears it again. There is no button — `isPhaseComplete()` returns
+`allWorkDone(phase) || phase.gatePassed`, the second half only so that units
+passed by hand before this rule changed stay complete until the next tick
+recomputes them. Both transitions are recorded in the activity log.
 
 "Hours logged" = the sum of hours from **subtopics** you've marked done (input
 measure), shown against the track's fixed total.
@@ -198,7 +202,8 @@ estimate — nothing on those charts is inferred.
    2027 revision added or dropped. Read-only by design — ticking stays on the
    study plan so the two can never disagree.
 5. **Unit detail** — everything about one subject or phase on one page, and the
-   same on every roadmap: gate box and the two numbers on the left, topic →
+   same on every roadmap: the gate artifact with a progress bar and a count of
+   what is left to tick (no button — completion follows the checklist), topic →
    subtopic checklist on the right, then the **Learn from** block, then
    **Syllabus in full** — the unit's whole scope, every chapter naming the book
    chapter that covers it and every concept carrying its explanation. It opens

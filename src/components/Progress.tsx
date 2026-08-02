@@ -57,7 +57,7 @@ export function Progress({
               {gatesPassed}/{unitCount}
             </div>
             <div className="k" style={{ letterSpacing: '.06em' }}>
-              the only real measure
+              complete when fully ticked
             </div>
           </div>
           <div className="bg-bg p-3">
@@ -86,7 +86,7 @@ export function Progress({
         </div>
 
         <div className="k mb-2">
-          {track.unitLabel} matrix — fill = subtopics · cap = gate
+          {track.unitLabel} matrix — fill = subtopics · cap = complete
         </div>
         <div className="grid grid-cols-4 gap-1.5">
           {phases.map((p) => {
@@ -138,8 +138,9 @@ export function Progress({
             color: 'rgba(29,31,32,.6)',
           }}
         >
-          Spend most of your time building, not reading. The gate is the only real
-          output — hours and checkboxes are just input.
+          Spend most of your time building, not reading. The gate artifact is what
+          each phase is really for — tick a subtopic once you could actually produce
+          it, not once you have read about it.
         </p>
       </div>
 

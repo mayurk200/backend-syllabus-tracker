@@ -55,9 +55,9 @@ export function Dashboard({
   const week = weeksSince(meta?.startDate);
   const unitCount = phases.length || track.unitCount;
 
-  // The current unit is the first one whose gate is still open — the app only
-  // ever points at one thing.
-  const current = phases.find((p) => !p.gatePassed) ?? phases[phases.length - 1];
+  // The current unit is the first one not yet complete — the app only ever
+  // points at one thing.
+  const current = phases.find((p) => !isPhaseComplete(p)) ?? phases[phases.length - 1];
   const currentIndex = current ? phases.indexOf(current) + 1 : 0;
   const currentLogged = current ? hoursLogged(current) : 0;
   const currentTopicsDone = current ? current.topics.filter((t) => t.done).length : 0;

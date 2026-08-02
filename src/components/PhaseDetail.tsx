@@ -21,7 +21,6 @@ interface PhaseDetailProps {
     subtopicIndex: number,
     done: boolean,
   ) => Promise<void>;
-  onToggleGate: (gatePassed: boolean) => Promise<void>;
 }
 
 const ACCENT = '#5980a6';
@@ -51,9 +50,7 @@ export function PhaseDetail({
   onBack,
   onToggleTopic,
   onToggleSubtopic,
-  onToggleGate,
 }: PhaseDetailProps): JSX.Element {
-  const [busyGate, setBusyGate] = useState(false);
   const [open, setOpen] = useState<number | null>(0);
   const isGate = track.id === 'gate';
 
@@ -107,20 +104,7 @@ export function PhaseDetail({
     0,
   );
   const unitIndex = phases.findIndex((p) => p.id === phase.id) + 1;
-
-  const handleGate = async (next: boolean): Promise<void> => {
-    if (next === phase.gatePassed) return;
-    const msg = next
-      ? `Mark the gate for "${phase.title}" as PASSED?\n\nGate: ${phase.gate}\n\nOnly do this once the artifact actually exists.`
-      : `Reopen the gate for "${phase.title}"? This marks it incomplete again.`;
-    if (!window.confirm(msg)) return;
-    setBusyGate(true);
-    try {
-      await onToggleGate(next);
-    } finally {
-      setBusyGate(false);
-    }
-  };
+  const complete = isPhaseComplete(phase);
 
   return (
     <div className="space-y-5">
@@ -172,13 +156,16 @@ export function PhaseDetail({
       <div className="grid gap-7 md:grid-cols-[380px_1fr] md:items-start">
         {/* ── gate + the two numbers ─────────────────────────────────── */}
         <div className="flex flex-col gap-4 md:sticky md:top-4">
-          <div className="bx p-3.5">
+          <div
+            className="bx p-3.5"
+            style={complete ? { borderColor: ACCENT } : undefined}
+          >
             <div className="flex items-baseline justify-between">
-              <span className="k">
-                {track.unitLabel} gate — {phase.gatePassed ? 'passed' : 'open'}
+              <span className="k" style={complete ? { color: ACCENT } : undefined}>
+                {track.unitLabel} gate
               </span>
-              <span className="k">
-                {phase.gatePassed ? 'complete' : 'not complete'}
+              <span className="k" style={complete ? { color: ACCENT } : undefined}>
+                {complete ? '✓ complete' : `${subsDone}/${subsTotal} ticked`}
               </span>
             </div>
             <p style={{ font: '400 14px/1.5 var(--font-body)', marginTop: 10 }}>
@@ -190,28 +177,19 @@ export function PhaseDetail({
             >
               {phase.description}
             </p>
-            <div className="mt-4 flex gap-2">
-              <button
-                className="btn-solid"
-                style={{ height: 38 }}
-                disabled={busyGate}
-                onClick={() => void handleGate(true)}
-              >
-                {phase.gatePassed ? '✓ Gate passed' : busyGate ? '…' : 'Mark gate passed'}
-              </button>
-              {phase.gatePassed && (
-                <button
-                  className="btn-line"
-                  style={{ width: 110, height: 38 }}
-                  disabled={busyGate}
-                  onClick={() => void handleGate(false)}
-                >
-                  Reopen
-                </button>
-              )}
+            <div className="mt-4 h-2" style={{ background: 'rgba(29,31,32,.14)' }}>
+              <div
+                className="h-full"
+                style={{
+                  width: `${subsTotal ? Math.round((subsDone / subsTotal) * 100) : 0}%`,
+                  background: ACCENT,
+                }}
+              />
             </div>
             <div className="k mt-2.5" style={{ letterSpacing: '.04em', lineHeight: 1.5 }}>
-              Confirms before writing — checkbox completion never passes a gate.
+              {complete
+                ? `This ${track.unitLabel.toLowerCase()} is complete — everything in it is ticked. Untick anything and it reopens.`
+                : `Marked complete automatically once every subtopic is ticked. ${subsTotal - subsDone} to go.`}
             </div>
           </div>
 

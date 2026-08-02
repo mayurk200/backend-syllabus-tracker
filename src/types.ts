@@ -238,9 +238,23 @@ export function topicHoursLogged(topic: Topic): number {
   return topic.subtopics.reduce((s, st) => (st.done ? s + st.hours : s), 0);
 }
 
-/** A phase is complete ONLY when the gate is passed — never on topics alone. */
+/** Every subtopic ticked (and every topic that has none marked done). */
+export function allWorkDone(phase: Phase): boolean {
+  if (phase.topics.length === 0) return false;
+  return phase.topics.every((t) =>
+    t.subtopics.length === 0 ? t.done : t.subtopics.every((s) => s.done),
+  );
+}
+
+/**
+ * A unit is complete when everything in it is ticked. `gatePassed` is still the
+ * stored flag — it is now written automatically as the last subtopic is ticked
+ * and cleared again if one is unticked — and is also honoured on its own so
+ * that units passed by hand before this rule changed stay complete until the
+ * next tick recomputes them.
+ */
 export function isPhaseComplete(phase: Phase): boolean {
-  return phase.gatePassed;
+  return allWorkDone(phase) || phase.gatePassed;
 }
 
 /** Recompute a topic's `done` flag from its subtopics. */

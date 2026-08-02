@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useTrackerData } from './hooks/useTrackerData';
 import {
   addReview,
-  setGatePassed,
   setReviewPreviousDone,
   setSubtopicDone,
   setTopicDone,
@@ -96,10 +95,6 @@ export default function App(): JSX.Element {
     done: boolean,
   ): Promise<void> => {
     await setSubtopicDone(uid, trackId, phase, topicIndex, subtopicIndex, done);
-  };
-
-  const handleToggleGate = async (phase: Phase, gatePassed: boolean): Promise<void> => {
-    await setGatePassed(uid, trackId, phase, gatePassed);
   };
 
   const handleWeekStatus = async (
@@ -196,7 +191,6 @@ export default function App(): JSX.Element {
           onToggleSubtopic={(i, j, done) =>
             handleToggleSubtopic(selectedPhase, i, j, done)
           }
-          onToggleGate={(passed) => handleToggleGate(selectedPhase, passed)}
         />
       );
     }

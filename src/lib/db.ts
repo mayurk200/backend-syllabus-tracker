@@ -25,6 +25,7 @@ import type {
   NewWeeklyReview,
   Phase,
   PhaseDoc,
+  Topic,
   TrackId,
   WeekEntry,
   WeeklyReview,
@@ -230,6 +231,36 @@ export function subscribePhases(
   );
 }
 
+/** Everything in the unit ticked — the condition that marks it complete. */
+function everythingDone(topics: Topic[]): boolean {
+  if (topics.length === 0) return false;
+  return topics.every((t) =>
+    t.subtopics.length === 0 ? t.done : t.subtopics.every((s) => s.done),
+  );
+}
+
+/**
+ * Completion is derived, not chosen: ticking the last subtopic marks the unit
+ * complete and unticking one reopens it. Recorded in the activity log either
+ * way so the dashboard and the review history still see it happen.
+ */
+async function writeTopics(
+  uid: string,
+  track: TrackId,
+  phase: Phase,
+  topics: Topic[],
+): Promise<void> {
+  const gatePassed = everythingDone(topics);
+  await updateDoc(phaseDoc(uid, track, phase.id), { topics, gatePassed });
+  if (gatePassed !== phase.gatePassed) {
+    await logActivity(uid, track, {
+      kind: 'gate',
+      label: `${gatePassed ? 'Gate passed' : 'Gate reopened'} — ${phase.title}`,
+      hours: 0,
+    });
+  }
+}
+
 /** Tick or untick a single subtopic; the parent topic's flag is recomputed. */
 export async function setSubtopicDone(
   uid: string,
@@ -250,12 +281,12 @@ export async function setSubtopicDone(
     const next = { ...t, subtopics };
     return { ...next, done: topicDoneFromSubtopics(next) };
   });
-  await updateDoc(phaseDoc(uid, track, phase.id), { topics });
   await logActivity(uid, track, {
     kind: 'subtopic',
     label: `${done ? 'Ticked' : 'Unticked'} ${subtopic.name}`,
     hours: done ? subtopic.hours : -subtopic.hours,
   });
+  await writeTopics(uid, track, phase, topics);
 }
 
 /** Tick or untick a whole topic — cascades to every subtopic under it. */
@@ -275,26 +306,12 @@ export async function setTopicDone(
       ? { ...t, done, subtopics: t.subtopics.map((s) => ({ ...s, done })) }
       : t,
   );
-  await updateDoc(phaseDoc(uid, track, phase.id), { topics });
   await logActivity(uid, track, {
     kind: 'topic',
     label: `${done ? 'Closed' : 'Reopened'} ${topic.name}`,
     hours: (done ? topic.hours : 0) - before,
   });
-}
-
-export async function setGatePassed(
-  uid: string,
-  track: TrackId,
-  phase: Phase,
-  gatePassed: boolean,
-): Promise<void> {
-  await updateDoc(phaseDoc(uid, track, phase.id), { gatePassed });
-  await logActivity(uid, track, {
-    kind: 'gate',
-    label: `Gate ${gatePassed ? 'passed' : 'reopened'} — ${phase.title}`,
-    hours: 0,
-  });
+  await writeTopics(uid, track, phase, topics);
 }
 
 // ---- GATE week timeline ----
