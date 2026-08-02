@@ -1,19 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { WeekEntry, WeekStatus, WeekStatusMap } from '../types';
+import type { WeekEntry, WeekOutcome } from '../types';
 import {
+  WEEK_OUTCOME_LABEL,
   dayBody,
   dayLabel,
+  missedStudyDays,
+  studyDayIndexes,
   weekDayHours,
   weekHoursDone,
-  weekIsComplete,
+  weekOutcome,
 } from '../types';
 import { Corners } from './Corners';
 
 interface TimelineProps {
   weeks: WeekEntry[];
-  status: WeekStatusMap;
-  onSetStatus: (week: WeekEntry, status: WeekStatus | null) => Promise<void>;
   onSetDayDone: (week: WeekEntry, dayIndex: number, done: boolean) => Promise<void>;
+}
+
+const AMBER = '#9a7b3f';
+
+/** One colour per outcome, used by the strip, the rows and the badges alike. */
+function outcomeColour(outcome: WeekOutcome): string {
+  if (outcome === 'pass') return ACCENT;
+  if (outcome === 'partial') return AMBER;
+  if (outcome === 'missed') return RED;
+  return 'rgba(29,31,32,.35)';
 }
 
 const ACCENT = '#5980a6';
@@ -53,12 +64,7 @@ function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-export function Timeline({
-  weeks,
-  status,
-  onSetStatus,
-  onSetDayDone,
-}: TimelineProps): JSX.Element {
+export function Timeline({ weeks, onSetDayDone }: TimelineProps): JSX.Element {
   const now = useNow();
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -83,31 +89,30 @@ export function Timeline({
       ? 0
       : 1;
 
-  const passed = Object.values(status).filter((s) => s === 'pass').length;
-  const failed = Object.values(status).filter((s) => s === 'fail').length;
+  const outcomes = new Map<string, WeekOutcome>(
+    weeks.map((w) => [w.id, weekOutcome(w, now)]),
+  );
+  const passed = weeks.filter((w) => outcomes.get(w.id) === 'pass').length;
+  const partial = weeks.filter((w) => outcomes.get(w.id) === 'partial').length;
+  const missed = weeks.filter((w) => outcomes.get(w.id) === 'missed').length;
 
   const beforeStart = now < campaignStart;
   const afterExam = remaining === 0;
   const needleLeft = `${((currentIndex >= 0 ? currentIndex + weekFrac : 0) / Math.max(1, weeks.length)) * 100}%`;
 
-  // The most recently judged weeks — the honest run of pass/fail behind you.
-  const recentGates = weeks
-    .filter((w) => status[w.id])
+  // The weeks already behind you, with how each turned out.
+  const settled = weeks
+    .filter((w) => {
+      const o = outcomes.get(w.id);
+      return o === 'pass' || o === 'partial' || o === 'missed';
+    })
     .slice(-5)
     .reverse();
 
   const currentHours = current ? weekDayHours(current) : [];
   const currentLogged = current ? weekHoursDone(current) : 0;
-  const currentStatus = current ? status[current.id] : undefined;
-
-  const handleStatus = async (w: WeekEntry, next: WeekStatus | null): Promise<void> => {
-    setBusy(w.id);
-    try {
-      await onSetStatus(w, next);
-    } finally {
-      setBusy(null);
-    }
-  };
+  const currentOutcome = current ? outcomes.get(current.id) : undefined;
+  const currentMissed = current ? missedStudyDays(current) : [];
 
   const handleDay = async (w: WeekEntry, i: number, done: boolean): Promise<void> => {
     setBusy(`${w.id}:${i}`);
@@ -164,17 +169,16 @@ export function Timeline({
         </div>
         <div className="relative flex h-11 gap-[2px]">
           {weeks.map((w, i) => {
-            const s = status[w.id];
-            const isPast = now > endOf(w);
+            const outcome = outcomes.get(w.id) ?? 'pending';
             const isCurrent = i === currentIndex;
             const fill =
-              s === 'pass'
-                ? ACCENT
-                : s === 'fail'
-                  ? 'rgba(160,60,60,.65)'
-                  : isPast
-                    ? 'rgba(29,31,32,.3)'
-                    : 'rgba(29,31,32,.13)';
+              outcome === 'pending'
+                ? 'rgba(29,31,32,.13)'
+                : outcome === 'partial'
+                  ? 'rgba(154,123,63,.7)'
+                  : outcome === 'missed'
+                    ? 'rgba(160,60,60,.65)'
+                    : ACCENT;
             return (
               <button
                 key={w.id}
@@ -291,77 +295,82 @@ export function Timeline({
         <div className="flex min-w-0 flex-col gap-5">
           {current && (
             <div className="bx p-3.5">
-              <div className="k">Weekly gate · {current.id}</div>
+              <div className="flex items-baseline justify-between">
+                <span className="k">Weekly gate · {current.id}</span>
+                <span
+                  className="k"
+                  style={{ color: outcomeColour(currentOutcome ?? 'pending') }}
+                >
+                  {currentOutcome === 'pass' ? '✓ ' : ''}
+                  {WEEK_OUTCOME_LABEL[currentOutcome ?? 'pending']}
+                </span>
+              </div>
               <p style={{ font: '400 13px/1.5 var(--font-body)', marginTop: 6 }}>
                 {current.gate}
               </p>
-              <div className="mt-3 flex gap-2">
-                <button
-                  className={currentStatus === 'pass' ? 'btn-solid' : 'btn-line'}
-                  style={{ flex: 1, height: 34 }}
-                  disabled={busy === current.id}
-                  onClick={() =>
-                    void handleStatus(current, currentStatus === 'pass' ? null : 'pass')
-                  }
-                >
-                  {currentStatus === 'pass' ? '✓ Passed' : 'Mark passed'}
-                </button>
-                <button
-                  className="btn-line"
+              <div className="mt-3 h-2" style={{ background: 'rgba(29,31,32,.14)' }}>
+                <div
+                  className="h-full"
                   style={{
-                    flex: 1,
-                    height: 34,
-                    borderColor: RED,
-                    color: RED,
-                    background:
-                      currentStatus === 'fail' ? 'rgba(160,60,60,.12)' : 'transparent',
+                    width: `${Math.round(((studyDayIndexes(current).length - currentMissed.length) / studyDayIndexes(current).length) * 100)}%`,
+                    background: outcomeColour(currentOutcome ?? 'pending'),
                   }}
-                  disabled={busy === current.id}
-                  onClick={() =>
-                    void handleStatus(current, currentStatus === 'fail' ? null : 'fail')
-                  }
-                >
-                  {currentStatus === 'fail' ? '✗ Failed' : 'Mark failed'}
-                </button>
+                />
+              </div>
+              <div className="k mt-2" style={{ lineHeight: 1.5, letterSpacing: '.04em' }}>
+                {currentOutcome === 'pass'
+                  ? 'Every study day ticked — the week passed automatically.'
+                  : `${studyDayIndexes(current).length - currentMissed.length} of ${studyDayIndexes(current).length} study days done. Passes on its own once all six are ticked.`}
               </div>
             </div>
           )}
 
           <div className="min-w-0">
             <div className="k mb-2 flex justify-between">
-              <span>Recent weekly gates</span>
+              <span>Weeks behind you</span>
               <span>
-                {passed} passed · {failed} failed
+                {passed} passed · {partial} partial · {missed} missed
               </span>
             </div>
             <div style={{ borderTop: '1px solid rgba(29,31,32,.35)' }}>
-              {recentGates.length === 0 && (
+              {settled.length === 0 && (
                 <div className="k py-2.5" style={{ letterSpacing: '.04em' }}>
-                  No week judged yet.
+                  No week has closed yet.
                 </div>
               )}
-              {recentGates.map((w) => {
-                const s = status[w.id];
+              {settled.map((w) => {
+                const outcome = outcomes.get(w.id) ?? 'pending';
+                const gaps = missedStudyDays(w);
                 return (
                   <button
                     key={w.id}
                     onClick={() => setOpen(open === w.id ? null : w.id)}
-                    className="flex w-full items-baseline gap-2.5 py-2 text-left"
+                    className="w-full py-2 text-left"
                     style={{ borderBottom: '1px solid rgba(29,31,32,.14)' }}
                   >
-                    <span className="k w-8 flex-none">{w.id}</span>
-                    <span
-                      className="min-w-0 flex-1 truncate"
-                      style={{ font: '400 12px/1.4 var(--font-body)' }}
-                    >
-                      {w.title}
+                    <span className="flex items-baseline gap-2.5">
+                      <span className="k w-8 flex-none">{w.id}</span>
+                      <span
+                        className="min-w-0 flex-1 truncate"
+                        style={{ font: '400 12px/1.4 var(--font-body)' }}
+                      >
+                        {w.title}
+                      </span>
+                      <span
+                        className="k flex-none"
+                        style={{ color: outcomeColour(outcome) }}
+                      >
+                        {WEEK_OUTCOME_LABEL[outcome]}
+                      </span>
                     </span>
-                    <span
-                      className="k flex-none"
-                      style={{ color: s === 'pass' ? ACCENT : RED }}
-                    >
-                      {s === 'pass' ? 'pass' : 'fail'}
-                    </span>
+                    {gaps.length > 0 && (
+                      <span
+                        className="k mt-1 block"
+                        style={{ letterSpacing: '.04em', color: outcomeColour(outcome) }}
+                      >
+                        missed {gaps.map((i) => dayLabel(w.days[i], i)).join(', ')}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -379,7 +388,8 @@ export function Timeline({
         </div>
 
         {weeks.map((w, i) => {
-          const s = status[w.id];
+          const outcome = outcomes.get(w.id) ?? 'pending';
+          const gaps = outcome === 'pending' ? [] : missedStudyDays(w);
           const isCurrent = i === currentIndex;
           const isPast = now > endOf(w);
           const expanded = open === w.id;
@@ -395,12 +405,13 @@ export function Timeline({
                   style={{
                     font: '600 11px var(--font-heading)',
                     background:
-                      s === 'pass'
-                        ? ACCENT
-                        : s === 'fail'
-                          ? 'rgba(160,60,60,.8)'
-                          : 'transparent',
-                    color: s ? '#fff' : isPast ? MUTED : 'var(--ink)',
+                      outcome === 'pending' ? 'transparent' : outcomeColour(outcome),
+                    color:
+                      outcome === 'pending'
+                        ? isPast
+                          ? MUTED
+                          : 'var(--ink)'
+                        : '#fff',
                     borderColor: isCurrent ? ACCENT : undefined,
                   }}
                 >
@@ -422,10 +433,18 @@ export function Timeline({
                   </div>
                   <div className="k mt-1" style={{ letterSpacing: '.05em' }}>
                     {w.dates} · {weekHoursDone(w)}/{w.hours}h {isCurrent && '· now'}
-                    {w.missedAt && (
-                      <span style={{ color: weekIsComplete(w) ? ACCENT : RED }}>
+                    {outcome !== 'pending' && (
+                      <span style={{ color: outcomeColour(outcome) }}>
                         {' '}
-                        · {weekIsComplete(w) ? 'caught up late' : 'missed'}
+                        · {w.missedAt && outcome === 'pass'
+                          ? 'caught up late'
+                          : WEEK_OUTCOME_LABEL[outcome]}
+                      </span>
+                    )}
+                    {gaps.length > 0 && (
+                      <span style={{ color: outcomeColour(outcome) }}>
+                        {' '}
+                        · missed {gaps.map((j) => dayLabel(w.days[j], j)).join(', ')}
                       </span>
                     )}
                   </div>
@@ -472,33 +491,21 @@ export function Timeline({
                     <div className="k mb-1">Gate</div>
                     <div style={{ font: '400 11.5px/1.45 var(--font-body)' }}>{w.gate}</div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      className="btn-line"
-                      style={{
-                        flex: 1,
-                        height: 32,
-                        borderColor: s === 'pass' ? ACCENT : undefined,
-                        color: s === 'pass' ? ACCENT : undefined,
-                      }}
-                      disabled={busy === w.id}
-                      onClick={() => void handleStatus(w, s === 'pass' ? null : 'pass')}
-                    >
-                      {s === 'pass' ? '✓ Passed' : 'Mark passed'}
-                    </button>
-                    <button
-                      className="btn-line"
-                      style={{
-                        flex: 1,
-                        height: 32,
-                        borderColor: s === 'fail' ? RED : undefined,
-                        color: s === 'fail' ? RED : undefined,
-                      }}
-                      disabled={busy === w.id}
-                      onClick={() => void handleStatus(w, s === 'fail' ? null : 'fail')}
-                    >
-                      {s === 'fail' ? '✗ Failed' : 'Mark failed'}
-                    </button>
+                  <div
+                    className="k"
+                    style={{
+                      letterSpacing: '.04em',
+                      lineHeight: 1.5,
+                      color: outcome === 'pending' ? undefined : outcomeColour(outcome),
+                    }}
+                  >
+                    {outcome === 'pass'
+                      ? '✓ Passed — every study day ticked.'
+                      : gaps.length > 0 && outcome !== 'pending'
+                        ? `${WEEK_OUTCOME_LABEL[outcome]} — still open: ${gaps
+                            .map((j) => dayBody(w.days[j]).slice(0, 48))
+                            .join(' · ')}`
+                        : `Passes on its own once all ${studyDayIndexes(w).length} study days are ticked.`}
                   </div>
                 </div>
               )}

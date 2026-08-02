@@ -34,6 +34,7 @@ import type {
   WeekStatusMap,
 } from '../types';
 import {
+  REST_DAY_INDEX,
   topicDoneFromSubtopics,
   topicHoursLogged,
   weekDayHours,
@@ -320,7 +321,19 @@ async function mirrorSubtopicToDay(
   if (current[link.dayIndex] === done) return;
 
   const dayDone = current.map((d, i) => (i === link.dayIndex ? done : d));
-  await updateDoc(ref, { dayDone });
+  await updateDoc(ref, { dayDone, status: statusFromDays(data.days ?? [], dayDone) });
+}
+
+/**
+ * A week passes when every study day is ticked, and stops passing the moment
+ * one is untied again. Sunday is protected rest and never counts.
+ */
+function statusFromDays(days: string[], dayDone: boolean[]): WeekStatus | null {
+  if (days.length === 0) return null;
+  const allDone = days.every((_, i) =>
+    i === REST_DAY_INDEX ? true : (dayDone[i] ?? false),
+  );
+  return allDone ? 'pass' : null;
 }
 
 /** Tick or untick a single subtopic; the parent topic's flag is recomputed. */
@@ -405,21 +418,6 @@ export function subscribeWeeks(
   );
 }
 
-export async function setWeekStatus(
-  uid: string,
-  week: WeekEntry,
-  status: WeekStatus | null,
-): Promise<void> {
-  await updateDoc(weekDoc(uid, week.id), { status });
-  await logActivity(uid, 'gate', {
-    kind: 'week',
-    label: status
-      ? `${week.id} weekly gate ${status === 'pass' ? 'passed' : 'failed'}`
-      : `${week.id} weekly gate cleared`,
-    hours: 0,
-  });
-}
-
 /** Tick one day of a campaign week. Hours come from the week's planned split. */
 export async function setWeekDayDone(
   uid: string,
@@ -430,7 +428,16 @@ export async function setWeekDayDone(
   const current = week.dayDone ?? week.days.map(() => false);
   if (current[dayIndex] === done) return;
   const dayDone = current.map((d, i) => (i === dayIndex ? done : d));
-  await updateDoc(weekDoc(uid, week.id), { dayDone });
+  const status = statusFromDays(week.days, dayDone);
+  await updateDoc(weekDoc(uid, week.id), { dayDone, status });
+
+  if (status === 'pass' && week.dayDone && !weekIsComplete(week)) {
+    await logActivity(uid, 'gate', {
+      kind: 'week',
+      label: `${week.id} passed — ${week.title}`,
+      hours: 0,
+    });
+  }
 
   const hours = weekDayHours(week)[dayIndex] ?? 0;
   const label = week.days[dayIndex] ?? `${week.id} day ${dayIndex + 1}`;

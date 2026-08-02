@@ -6,7 +6,6 @@ import {
   setSubtopicDone,
   setTopicDone,
   setWeekDayDone,
-  setWeekStatus,
   subscribeReviews,
 } from './lib/db';
 import type {
@@ -15,9 +14,8 @@ import type {
   TrackId,
   WeekEntry,
   WeeklyReview,
-  WeekStatus,
 } from './types';
-import { TRACKS, hoursLogged, isPhaseComplete, trackDef } from './types';
+import { TRACKS, hoursLogged, isPhaseComplete, trackDef, weekIsComplete } from './types';
 import { Backlog } from './components/Backlog';
 import { Dashboard } from './components/Dashboard';
 import { Progress } from './components/Progress';
@@ -100,13 +98,6 @@ export default function App(): JSX.Element {
     await setSubtopicDone(uid, trackId, phase, topicIndex, subtopicIndex, done);
   };
 
-  const handleWeekStatus = async (
-    week: WeekEntry,
-    status: WeekStatus | null,
-  ): Promise<void> => {
-    await setWeekStatus(uid, week, status);
-  };
-
   const handleWeekDay = async (
     week: WeekEntry,
     dayIndex: number,
@@ -173,7 +164,8 @@ export default function App(): JSX.Element {
     allSubs.length === 0
       ? 0
       : Math.round((allSubs.filter((s) => s.done).length / allSubs.length) * 100);
-  const weeksPassed = Object.values(weekStatus).filter((s) => s === 'pass').length;
+  // Derived from the day checkboxes, same as the Timeline itself.
+  const weeksPassed = weeks.filter(weekIsComplete).length;
 
   // Syllabus size: authored concepts for GATE, the live subtopic tree for backend.
   const conceptCount =
@@ -204,12 +196,7 @@ export default function App(): JSX.Element {
     switch (activeTab) {
       case 'timeline':
         return (
-          <Timeline
-            weeks={weeks}
-            status={weekStatus}
-            onSetStatus={handleWeekStatus}
-            onSetDayDone={handleWeekDay}
-          />
+          <Timeline weeks={weeks} onSetDayDone={handleWeekDay} />
         );
       case 'progress':
         return (

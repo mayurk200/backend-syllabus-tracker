@@ -1,5 +1,6 @@
 import { GATE_SUBJECTS } from './gateData';
 import { GATE_WEEKS } from './gateWeeks';
+import { REST_DAY_INDEX } from '../types';
 
 /**
  * The same day of study appears twice in the GATE track: once on the Timeline
@@ -17,8 +18,7 @@ import { GATE_WEEKS } from './gateWeeks';
  * campaign-only and deliberately have no subject behind them.
  */
 
-/** The rest day: index 6 of every week, with no subtopic behind it. */
-export const REST_DAY_INDEX = 6;
+export { REST_DAY_INDEX } from '../types';
 
 export interface DayLink {
   weekId: string;

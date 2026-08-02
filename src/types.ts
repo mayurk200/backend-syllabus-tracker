@@ -111,11 +111,50 @@ export interface WeekEntry {
   missedAt?: number | null;
 }
 
-/** A week is missed once its end has passed with any study day still unticked. */
-export function weekIsComplete(week: WeekEntry): boolean {
-  const done = week.dayDone ?? [];
-  return week.days.every((_, i) => (i === 6 ? true : (done[i] ?? false)));
+/** Sunday: protected rest, index 6 of every week, never counted as work. */
+export const REST_DAY_INDEX = 6;
+
+/** Indices of the six study days — everything except the rest day. */
+export function studyDayIndexes(week: WeekEntry): number[] {
+  return week.days.map((_, i) => i).filter((i) => i !== REST_DAY_INDEX);
 }
+
+/** Study days still unticked. */
+export function missedStudyDays(week: WeekEntry): number[] {
+  const done = week.dayDone ?? [];
+  return studyDayIndexes(week).filter((i) => !(done[i] ?? false));
+}
+
+/** A week is complete once every study day is ticked. */
+export function weekIsComplete(week: WeekEntry): boolean {
+  return missedStudyDays(week).length === 0;
+}
+
+export function weekEnded(week: WeekEntry, now: number): boolean {
+  return new Date(`${week.end}T23:59:59`).getTime() < now;
+}
+
+/**
+ * How a week turned out. Derived, never chosen: finishing every study day
+ * passes it whenever that happens, and a week that closes with work left over
+ * is partial if you did some of it and missed outright if you did none.
+ */
+export type WeekOutcome = 'pending' | 'pass' | 'partial' | 'missed';
+
+export function weekOutcome(week: WeekEntry, now: number): WeekOutcome {
+  if (weekIsComplete(week)) return 'pass';
+  if (!weekEnded(week, now)) return 'pending';
+  return missedStudyDays(week).length < studyDayIndexes(week).length
+    ? 'partial'
+    : 'missed';
+}
+
+export const WEEK_OUTCOME_LABEL: Record<WeekOutcome, string> = {
+  pending: 'in progress',
+  pass: 'passed',
+  partial: 'some done',
+  missed: 'missed',
+};
 
 /**
  * Planned split of a 45h campaign week: Mon–Fri 7h of intake/consolidation,

@@ -182,6 +182,19 @@ Sunday has no counterpart), and ticking either one writes the other. 108 links
 across the 18 core weeks W1–W18; setup, revision, mock and taper weeks are
 campaign-only. Only the originating tick logs its hours, so nothing double-counts.
 
+**A week's outcome is derived, never chosen.** There are no pass/fail buttons.
+`weekOutcome()` reads the day checkboxes against the calendar:
+
+| Outcome | When |
+| ------- | ---- |
+| **passed** | all six study days ticked — whenever that happens, early or late |
+| **in progress** | the week has not closed yet and work is outstanding |
+| **some done** | the week closed with some days ticked; the missed days are named |
+| **missed** | the week closed with none ticked |
+
+Sunday is protected rest and never counts against a pass. Ticking the last study
+day writes `status: 'pass'` automatically; unticking one clears it again.
+
 **Missing a week is recorded, permanently.** Once a campaign week's end passes
 with study days still unticked, `missedAt` is written to that week and never
 cleared. Finishing the work afterwards still counts — the week shows "caught up
@@ -206,8 +219,9 @@ estimate — nothing on those charts is inferred.
    the GATE track).
 3. **Timeline** (GATE only) — a live campaign clock: seconds-accurate countdown
    to 6 Feb 2027, a 28-week strip with milestone ticks and a "you are here"
-   needle, this week broken into tickable days with their planned hours, and
-   pass/fail on every weekly gate.
+   needle, and this week broken into tickable days with their planned hours.
+   Every week's outcome follows from those ticks — passed, some done, missed —
+   with the missed days named on the row rather than left for you to work out.
 4. **Syllabus** — the reference page: every chapter and every concept, each with
    one line saying what it is or what gets asked. 733 GATE concepts across 75
    chapters, 201 backend concepts. Every subject carries a **Learn from** block
