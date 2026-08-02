@@ -1,17 +1,21 @@
 import { useState } from 'react';
 import type { Phase } from '../types';
-import { hoursLogged, topicCompletion } from '../types';
-import { ProgressBar } from './ProgressBar';
+import { hoursLogged, isPhaseComplete } from '../types';
+import { Corners } from './Corners';
 
 interface PhaseDetailProps {
   phase: Phase;
+  phases: Phase[]; // for the pip track across all 12
   onBack: () => void;
   onToggleTopic: (topicIndex: number, done: boolean) => Promise<void>;
   onToggleGate: (gatePassed: boolean) => Promise<void>;
 }
 
+const ACCENT = '#5980a6';
+
 export function PhaseDetail({
   phase,
+  phases,
   onBack,
   onToggleTopic,
   onToggleGate,
@@ -19,7 +23,7 @@ export function PhaseDetail({
   const [busyTopic, setBusyTopic] = useState<number | null>(null);
   const [busyGate, setBusyGate] = useState(false);
 
-  const pct = topicCompletion(phase);
+  const topicsDone = phase.topics.filter((t) => t.done).length;
   const logged = hoursLogged(phase);
 
   const handleTopic = async (index: number, done: boolean): Promise<void> => {
@@ -31,8 +35,8 @@ export function PhaseDetail({
     }
   };
 
-  const handleGate = async (): Promise<void> => {
-    const next = !phase.gatePassed;
+  const handleGate = async (next: boolean): Promise<void> => {
+    if (next === phase.gatePassed) return;
     const msg = next
       ? `Mark the gate for "${phase.title}" as PASSED?\n\nGate: ${phase.gate}\n\nOnly do this once the artifact actually exists.`
       : `Reopen the gate for "${phase.title}"? This marks the phase incomplete again.`;
@@ -46,96 +50,125 @@ export function PhaseDetail({
   };
 
   return (
-    <div className="space-y-4">
-      <button onClick={onBack} className="text-sm text-neutral-400 hover:text-white">
-        ← Dashboard
+    <div>
+      <button
+        onClick={onBack}
+        className="k mb-4"
+        style={{ letterSpacing: '.1em', background: 'transparent' }}
+      >
+        ‹ back to progress
       </button>
 
-      <header className="space-y-1">
-        <div className="text-xs uppercase tracking-wide text-neutral-500">
-          Phase {phase.id}
-        </div>
-        <h1 className="text-xl font-bold text-white">{phase.title}</h1>
-        <p className="text-sm text-neutral-400">{phase.description}</p>
-      </header>
+      <div className="blueprint p-4">
+        <Corners />
 
-      {/* GATE BOX — prominent, at the top */}
-      <div
-        className={`rounded-xl border p-4 ${
-          phase.gatePassed
-            ? 'border-emerald-500/40 bg-emerald-500/10'
-            : 'border-accent/40 bg-accent/10'
-        }`}
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wide text-neutral-300">
-            🚪 Gate — {phase.gatePassed ? 'passed' : 'open'}
-          </span>
-          <span
-            className={`text-xs font-medium ${
-              phase.gatePassed ? 'text-emerald-400' : 'text-neutral-500'
-            }`}
-          >
-            {phase.gatePassed ? '✓ complete' : 'not complete'}
-          </span>
+        {/* pip track across all phases */}
+        <div className="mb-4 flex gap-1">
+          {phases.map((p) => (
+            <div
+              key={p.id}
+              className="h-1.5 flex-1"
+              style={{ background: isPhaseComplete(p) ? ACCENT : 'rgba(29,31,32,.16)' }}
+            />
+          ))}
         </div>
-        <p className="mt-2 text-sm text-neutral-100">{phase.gate}</p>
-        <button
-          onClick={() => void handleGate()}
-          disabled={busyGate}
-          className={phase.gatePassed ? 'btn-ghost mt-3 w-full' : 'btn-primary mt-3 w-full'}
+
+        <div className="k">
+          Phase {phase.id} of 12 · gate {phase.gatePassed ? 'passed' : 'open'}
+        </div>
+        <div style={{ font: '600 26px/1.05 var(--font-heading)', margin: '6px 0 4px' }}>
+          {phase.title}
+        </div>
+        <p
+          className="mb-4"
+          style={{ font: '400 12px/1.4 var(--font-body)', color: 'rgba(29,31,32,.6)' }}
         >
-          {busyGate
-            ? 'Saving…'
-            : phase.gatePassed
-              ? 'Reopen gate'
-              : 'Mark gate passed'}
-        </button>
-        <p className="mt-2 text-[11px] text-neutral-500">
-          You advance on the gate, not on hours. Checking every topic does not complete
-          the phase.
+          {phase.description}
         </p>
-      </div>
 
-      {/* Topic completion — SEPARATE indicator from gate */}
-      <div className="card space-y-2">
-        <div className="flex items-baseline justify-between">
-          <span className="text-sm font-semibold text-neutral-300">Topics</span>
-          <span className="text-xs text-neutral-500">
-            {pct}% · {logged}/{phase.hours}h logged
-          </span>
+        {/* Gate artifact box */}
+        <div className="bx mb-4 p-3.5">
+          <div className="k mb-2">Gate artifact</div>
+          <div style={{ font: '400 14px/1.45 var(--font-body)' }}>{phase.gate}</div>
+          <div className="mt-3.5 flex gap-2">
+            <button
+              className="btn-solid"
+              disabled={busyGate}
+              onClick={() => void handleGate(true)}
+              style={
+                phase.gatePassed
+                  ? { background: ACCENT, opacity: 1 }
+                  : undefined
+              }
+            >
+              {phase.gatePassed ? '✓ passed' : busyGate ? '…' : 'Mark passed'}
+            </button>
+            <button
+              className="btn-line"
+              style={{ width: 110 }}
+              disabled={busyGate}
+              onClick={() => void handleGate(false)}
+            >
+              Not yet
+            </button>
+          </div>
+          <div className="k mt-2" style={{ letterSpacing: '.04em' }}>
+            you advance on the gate, not on hours
+          </div>
         </div>
-        <ProgressBar percent={pct} />
-      </div>
 
-      <ul className="space-y-2">
-        {phase.topics.map((topic, index) => (
-          <li key={topic.name} className="card">
-            <label className="flex cursor-pointer items-start gap-3">
+        {/* Supporting topics */}
+        <div className="k mb-2">
+          Supporting topics — {topicsDone} of {phase.topics.length} · {logged}/{phase.hours}h
+        </div>
+        <div
+          className="flex flex-col gap-px"
+          style={{ background: 'rgba(29,31,32,.2)', border: '1px solid rgba(29,31,32,.35)' }}
+        >
+          {phase.topics.map((topic, index) => (
+            <label
+              key={topic.name}
+              className="flex cursor-pointer items-start gap-2.5 bg-bg px-3 py-2.5"
+            >
               <input
                 type="checkbox"
                 checked={topic.done}
                 disabled={busyTopic === index}
                 onChange={(e) => void handleTopic(index, e.target.checked)}
-                className="mt-0.5 h-5 w-5 shrink-0 accent-accent"
+                className="sr-only"
               />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
+              <span
+                className="bx mt-0.5 grid h-[15px] w-[15px] flex-none place-items-center"
+                style={{ background: topic.done ? ACCENT : 'transparent' }}
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline justify-between gap-2">
                   <span
-                    className={`text-sm font-medium ${
-                      topic.done ? 'text-neutral-500 line-through' : 'text-white'
-                    }`}
+                    style={{
+                      font: '500 13px var(--font-body)',
+                      color: topic.done ? 'rgba(29,31,32,.45)' : 'var(--ink)',
+                      textDecoration: topic.done ? 'line-through' : 'none',
+                    }}
                   >
                     {topic.name}
                   </span>
-                  <span className="shrink-0 text-xs text-neutral-500">{topic.hours}h</span>
-                </div>
-                <p className="mt-1 text-xs text-neutral-400">{topic.detail}</p>
-              </div>
+                  <span className="k flex-none">{topic.hours}h</span>
+                </span>
+                <span
+                  className="mt-1 block"
+                  style={{
+                    font: '400 11px/1.4 var(--font-body)',
+                    color: 'rgba(29,31,32,.5)',
+                  }}
+                >
+                  {topic.detail}
+                </span>
+              </span>
             </label>
-          </li>
-        ))}
-      </ul>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

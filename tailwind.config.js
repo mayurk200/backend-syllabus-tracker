@@ -1,19 +1,19 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        bg: '#0a0a0a',
-        surface: '#141414',
-        'surface-2': '#1c1c1c',
-        border: '#2a2a2a',
-        accent: '#6366f1',
-        'accent-2': '#818cf8',
+        ink: '#1d1f20',
+        bg: '#f2f2f3',
+        surface: '#e9e9ea',
+        accent: '#5980a6',
+        'accent-600': '#597ea3',
+        'accent-700': '#416180',
       },
       fontFamily: {
-        sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        heading: ['"Barlow Condensed"', 'system-ui', 'sans-serif'],
+        body: ['Barlow', 'system-ui', 'sans-serif'],
       },
     },
   },

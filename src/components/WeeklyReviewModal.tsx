@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { NewWeeklyReview, WeeklyReview } from '../types';
+import { Corners } from './Corners';
 
 interface WeeklyReviewModalProps {
   reviews: WeeklyReview[];
@@ -7,7 +8,7 @@ interface WeeklyReviewModalProps {
   onSubmit: (review: NewWeeklyReview) => Promise<void>;
 }
 
-function formatDate(ms: number): string {
+function fmtDate(ms: number): string {
   return new Date(ms).toLocaleString(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -49,76 +50,95 @@ export function WeeklyReviewModal({
     }
   };
 
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    resize: 'none',
+    background: 'var(--surface)',
+    border: '1px solid var(--divider)',
+    padding: 12,
+    font: '400 14px/1.4 var(--font-body)',
+    color: 'var(--ink)',
+    borderRadius: 0,
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      style={{ background: 'rgba(29,31,32,.5)' }}
       onClick={onClose}
     >
       <div
-        className="flex max-h-[90dvh] w-full max-w-md flex-col rounded-t-2xl border border-border bg-surface p-5 sm:rounded-2xl"
+        className="blueprint flex max-h-[90dvh] w-full max-w-md flex-col p-5"
         onClick={(e) => e.stopPropagation()}
       >
+        <Corners />
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-white">Weekly review</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-white">
+          <span className="h" style={{ fontSize: 18 }}>
+            WEEKLY REVIEW
+          </span>
+          <button
+            onClick={onClose}
+            className="k"
+            style={{ background: 'transparent', fontSize: 14 }}
+          >
             ✕
           </button>
         </div>
 
         <div className="mt-4 space-y-4 overflow-y-auto">
-          <label className="block space-y-1">
-            <span className="text-sm font-medium text-neutral-300">What stalled?</span>
+          <label className="block">
+            <span className="k">What stalled?</span>
             <textarea
               value={stalled}
               onChange={(e) => setStalled(e.target.value)}
               rows={3}
-              placeholder="Where did you get stuck or drift into reading instead of building?"
-              className="w-full resize-none rounded-lg border border-border bg-surface-2 p-3 text-sm text-white placeholder:text-neutral-600 focus:border-accent focus:outline-none"
+              placeholder="Where did you drift into reading instead of building?"
+              className="mt-1.5"
+              style={inputStyle}
             />
           </label>
 
-          <label className="block space-y-1">
-            <span className="text-sm font-medium text-neutral-300">
-              Next single objective
-            </span>
+          <label className="block">
+            <span className="k">Next single objective</span>
             <textarea
               value={nextObjective}
               onChange={(e) => setNextObjective(e.target.value)}
               rows={2}
               placeholder="One concrete thing to build next."
-              className="w-full resize-none rounded-lg border border-border bg-surface-2 p-3 text-sm text-white placeholder:text-neutral-600 focus:border-accent focus:outline-none"
+              className="mt-1.5"
+              style={inputStyle}
             />
           </label>
 
           <button
             onClick={() => void handleSubmit()}
             disabled={!canSave || saving}
-            className="btn-primary w-full"
+            className="btn-solid"
           >
             {saving ? 'Saving…' : 'Save review'}
           </button>
 
           {reviews.length > 0 && (
-            <div className="space-y-2 border-t border-border pt-4">
-              <h3 className="text-xs uppercase tracking-wide text-neutral-500">
-                Past reviews
-              </h3>
-              <ul className="space-y-3">
+            <div style={{ borderTop: '1px solid var(--divider)', paddingTop: 16 }}>
+              <div className="k mb-2">Past reviews</div>
+              <ul className="space-y-2.5">
                 {reviews.map((r) => (
-                  <li key={r.id} className="rounded-lg bg-surface-2 p-3">
-                    <div className="text-[11px] text-neutral-500">
-                      {formatDate(r.createdAt)}
-                    </div>
+                  <li key={r.id} className="bx p-3">
+                    <div className="k">{fmtDate(r.createdAt)}</div>
                     {r.stalled && (
-                      <p className="mt-1 text-xs text-neutral-300">
-                        <span className="text-neutral-500">Stalled: </span>
+                      <p style={{ font: '400 12px/1.45 var(--font-body)', marginTop: 4 }}>
                         {r.stalled}
                       </p>
                     )}
                     {r.nextObjective && (
-                      <p className="mt-1 text-xs text-neutral-300">
-                        <span className="text-neutral-500">Next: </span>
-                        {r.nextObjective}
+                      <p
+                        style={{
+                          font: '400 12px/1.45 var(--font-body)',
+                          color: 'var(--accent)',
+                          marginTop: 2,
+                        }}
+                      >
+                        → {r.nextObjective}
                       </p>
                     )}
                   </li>
