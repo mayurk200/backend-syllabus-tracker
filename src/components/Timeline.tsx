@@ -16,6 +16,8 @@ import { PageHead } from './PageHead';
 interface TimelineProps {
   weeks: WeekEntry[];
   onSetDayDone: (week: WeekEntry, dayIndex: number, done: boolean) => Promise<void>;
+  /** Trade two weeks' calendar slots — dates only, the plan stays put. */
+  onSwapWeeks: (a: WeekEntry, b: WeekEntry) => Promise<void>;
 }
 
 const AMBER = '#9a7b3f';
@@ -65,10 +67,17 @@ function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-export function Timeline({ weeks, onSetDayDone }: TimelineProps): JSX.Element {
+export function Timeline({
+  weeks,
+  onSetDayDone,
+  onSwapWeeks,
+}: TimelineProps): JSX.Element {
   const now = useNow();
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Week being dragged along the strip, and the week it is hovering over.
+  const [drag, setDrag] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
 
   const exam = useMemo(() => new Date(EXAM_ISO).getTime(), []);
   const campaignStart = useMemo(() => new Date(CAMPAIGN_START_ISO).getTime(), []);
@@ -124,6 +133,19 @@ export function Timeline({ weeks, onSetDayDone }: TimelineProps): JSX.Element {
     }
   };
 
+  /** Drop one week onto another: they trade dates and nothing else. */
+  const handleDrop = async (fromId: string, toId: string): Promise<void> => {
+    const a = weeks.find((w) => w.id === fromId);
+    const b = weeks.find((w) => w.id === toId);
+    if (!a || !b || a.id === b.id) return;
+    setBusy(`swap:${a.id}`);
+    try {
+      await onSwapWeeks(a, b);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const milestoneWeek = weeks.find((w, i) => Boolean(w.milestone) && i > currentIndex);
 
   return (
@@ -152,13 +174,18 @@ export function Timeline({ weeks, onSetDayDone }: TimelineProps): JSX.Element {
 
       {/* ── the 28-week strip, with milestone ticks and the live needle ── */}
       <div>
-        <div className="k mb-2 flex justify-between">
+        <div className="k mb-2 flex justify-between gap-3">
           <span>
             Campaign · {weeks.length} weeks · {CAMPAIGN_HOURS}h
           </span>
+          <span style={{ color: drag ? ACCENT : undefined }}>
+            {drag
+              ? `drop ${drag} on another week to trade dates`
+              : 'drag a week to swap'}
+          </span>
           <span>
             {current
-              ? `${current.id} of ${weeks.length} · you are here`
+              ? `week ${currentIndex + 1} of ${weeks.length} · ${current.id} · you are here`
               : beforeStart
                 ? 'not started'
                 : 'campaign over'}
@@ -176,19 +203,50 @@ export function Timeline({ weeks, onSetDayDone }: TimelineProps): JSX.Element {
                   : outcome === 'missed'
                     ? 'rgba(160,60,60,.65)'
                     : ACCENT;
+            const isDragging = drag === w.id;
+            const isTarget = over === w.id && drag !== null && drag !== w.id;
             return (
               <button
                 key={w.id}
                 onClick={() => setOpen(open === w.id ? null : w.id)}
                 className="flex flex-1 flex-col gap-[3px]"
-                title={`${w.id} · ${w.title} · ${w.dates}`}
+                title={`${w.id} · ${w.title} · ${w.dates} — drag onto another week to swap dates`}
+                draggable
+                onDragStart={(e) => {
+                  setDrag(w.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', w.id);
+                }}
+                onDragEnd={() => {
+                  setDrag(null);
+                  setOver(null);
+                }}
+                onDragOver={(e) => {
+                  if (!drag || drag === w.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  setOver(w.id);
+                }}
+                onDragLeave={() => setOver((c) => (c === w.id ? null : c))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const from = drag ?? e.dataTransfer.getData('text/plain');
+                  setDrag(null);
+                  setOver(null);
+                  if (from && from !== w.id) void handleDrop(from, w.id);
+                }}
+                style={{ cursor: 'grab', opacity: isDragging ? 0.35 : 1 }}
               >
                 <span
                   className="bx flex-1"
                   style={{
                     background: fill,
-                    borderColor: isCurrent ? ACCENT : undefined,
-                    outline: isCurrent ? `1px solid ${ACCENT}` : 'none',
+                    borderColor: isTarget ? RED : isCurrent ? ACCENT : undefined,
+                    outline: isTarget
+                      ? `2px solid ${RED}`
+                      : isCurrent
+                        ? `1px solid ${ACCENT}`
+                        : 'none',
                   }}
                 />
                 <span
@@ -381,7 +439,9 @@ export function Timeline({ weeks, onSetDayDone }: TimelineProps): JSX.Element {
         <Corners />
         <div className="mb-3 flex items-baseline justify-between">
           <span className="h">{weeks.length}-WEEK PLAN</span>
-          <span className="k">tap a week for the day-by-day</span>
+          <span className="k">
+            tap for the day-by-day · drag on the strip to swap dates
+          </span>
         </div>
 
         {weeks.map((w, i) => {

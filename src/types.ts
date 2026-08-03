@@ -109,6 +109,13 @@ export interface WeekEntry {
    * erase the fact that it slipped.
    */
   missedAt?: number | null;
+  /**
+   * Epoch millis at which this week was moved into the calendar slot it now
+   * occupies. Absent while a week still sits in the slot it was authored in.
+   * Only the dates move in a swap, so everything else here — the plan, the
+   * ticks, the record of a slip — belongs to the week and travels with it.
+   */
+  slottedAt?: number | null;
 }
 
 /** Sunday: protected rest, index 6 of every week, never counted as work. */
@@ -130,8 +137,27 @@ export function weekIsComplete(week: WeekEntry): boolean {
   return missedStudyDays(week).length === 0;
 }
 
+/** The last moment of a week's calendar slot, in epoch millis. */
+export function weekEndMs(week: WeekEntry): number {
+  return new Date(`${week.end}T23:59:59`).getTime();
+}
+
 export function weekEnded(week: WeekEntry, now: number): boolean {
-  return new Date(`${week.end}T23:59:59`).getTime() < now;
+  return weekEndMs(week) < now;
+}
+
+/**
+ * Did this week ever actually sit in its slot while that slot was open?
+ *
+ * Weeks can be swapped, which means a week can land on dates that have already
+ * passed — a deadline it was never given the chance to meet. Such a week is not
+ * judged: it has not run rather than been missed. A week already carrying
+ * `missedAt` was judged in an earlier slot, and that verdict stands wherever it
+ * moves to afterwards.
+ */
+export function weekWasLive(week: WeekEntry): boolean {
+  if (week.missedAt) return true;
+  return !week.slottedAt || week.slottedAt <= weekEndMs(week);
 }
 
 /**
@@ -143,7 +169,7 @@ export type WeekOutcome = 'pending' | 'pass' | 'partial' | 'missed';
 
 export function weekOutcome(week: WeekEntry, now: number): WeekOutcome {
   if (weekIsComplete(week)) return 'pass';
-  if (!weekEnded(week, now)) return 'pending';
+  if (!weekEnded(week, now) || !weekWasLive(week)) return 'pending';
   return missedStudyDays(week).length < studyDayIndexes(week).length
     ? 'partial'
     : 'missed';

@@ -7,6 +7,7 @@ import {
   setTopicDone,
   setWeekDayDone,
   subscribeReviews,
+  swapWeekSlots,
 } from './lib/db';
 import type {
   NewWeeklyReview,
@@ -138,6 +139,13 @@ export default function App(): JSX.Element {
     await setWeekDayDone(uid, week, dayIndex, done);
   };
 
+  // Two weeks trade calendar slots. Only the dates move, so the ticks and the
+  // subject links stay with the plan they belong to.
+  const handleSwapWeeks = async (a: WeekEntry, b: WeekEntry): Promise<void> => {
+    await swapWeekSlots(uid, a, b);
+    raise(`${a.id} and ${b.id} swapped weeks · ${a.id} now ${b.dates}`);
+  };
+
   const handleSubmitReview = async (review: NewWeeklyReview): Promise<void> => {
     await addReview(uid, trackId, review);
   };
@@ -214,7 +222,11 @@ export default function App(): JSX.Element {
     switch (activeTab) {
       case 'timeline':
         return (
-          <Timeline weeks={weeks} onSetDayDone={handleWeekDay} />
+          <Timeline
+            weeks={weeks}
+            onSetDayDone={handleWeekDay}
+            onSwapWeeks={handleSwapWeeks}
+          />
         );
       case 'progress':
         return (

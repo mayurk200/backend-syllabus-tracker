@@ -39,6 +39,7 @@ import {
   topicHoursLogged,
   weekDayHours,
   weekIsComplete,
+  weekWasLive,
 } from '../types';
 
 /**
@@ -411,7 +412,10 @@ export function subscribeWeeks(
         weeks.push({ id: d.id, ...(rest as Omit<WeekEntry, 'id'>) });
         if (s) status[d.id] = s;
       });
-      weeks.sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)));
+      // Ordered by the calendar, not by id: weeks can be swapped into each
+      // other's slots, and after a swap the ids are deliberately out of
+      // sequence — W7 stays W7 wherever it lands.
+      weeks.sort((a, b) => a.start.localeCompare(b.start));
       onData(weeks, status);
     },
     (err) => onError(err),
@@ -450,6 +454,48 @@ export async function setWeekDayDone(
 }
 
 /**
+ * Trade two weeks' calendar slots.
+ *
+ * Only the dates move. The id, the plan, the day ticks and any record of a slip
+ * stay with the week, which is what keeps the subject↔day links in gateLinks.ts
+ * pointing at the same work — they are keyed by week id, and the subject topics
+ * carry that id in their names. After a swap the ids read out of sequence on
+ * the timeline; that is the point.
+ *
+ * `slottedAt` marks the move so that a week dropped onto dates that have
+ * already passed is not then swept as missed. See `weekWasLive`.
+ */
+export async function swapWeekSlots(
+  uid: string,
+  a: WeekEntry,
+  b: WeekEntry,
+  now = Date.now(),
+): Promise<void> {
+  if (a.id === b.id) return;
+
+  const batch = writeBatch(db);
+  batch.update(weekDoc(uid, a.id), {
+    start: b.start,
+    end: b.end,
+    dates: b.dates,
+    slottedAt: now,
+  });
+  batch.update(weekDoc(uid, b.id), {
+    start: a.start,
+    end: a.end,
+    dates: a.dates,
+    slottedAt: now,
+  });
+  await batch.commit();
+
+  await logActivity(uid, 'gate', {
+    kind: 'week',
+    label: `${a.id} ⇄ ${b.id} — ${a.id} now ${b.dates}, ${b.id} now ${a.dates}`,
+    hours: 0,
+  });
+}
+
+/**
  * Mark every campaign week whose end has passed with work still outstanding.
  * `missedAt` is written once and never cleared — catching up later still counts,
  * but the slip stays on the record. Safe to call on every load.
@@ -462,6 +508,7 @@ export async function sweepMissedWeeks(
   const overdue = weeks.filter(
     (w) =>
       !w.missedAt &&
+      weekWasLive(w) &&
       new Date(`${w.end}T23:59:59`).getTime() < now &&
       !weekIsComplete(w),
   );

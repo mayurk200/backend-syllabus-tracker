@@ -1,6 +1,13 @@
 import type { BacklogItem, Phase, TrackId, WeekEntry } from '../types';
 import { REST_DAY_INDEX } from '../data/gateLinks';
-import { dayBody, dayLabel, isPhaseComplete, weekDayHours, weekIsComplete } from '../types';
+import {
+  dayBody,
+  dayLabel,
+  isPhaseComplete,
+  weekDayHours,
+  weekIsComplete,
+  weekWasLive,
+} from '../types';
 
 /**
  * What is behind, and why.
@@ -24,8 +31,10 @@ function gateBacklog(weeks: WeekEntry[], now: number): BacklogItem[] {
     const ended = new Date(`${w.end}T23:59:59`).getTime() < now;
     const complete = weekIsComplete(w);
     // `missedAt` is authoritative once written; the date check covers the gap
-    // between a week ending and the next sweep running.
-    const missed = Boolean(w.missedAt) || (ended && !complete);
+    // between a week ending and the next sweep running. A week swapped onto
+    // dates that had already passed never had the chance to run, so it is only
+    // behind if it was already carrying a slip before the move.
+    const missed = weekWasLive(w) && (Boolean(w.missedAt) || (ended && !complete));
     if (!missed) continue;
 
     const hours = weekDayHours(w);
