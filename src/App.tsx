@@ -5,6 +5,7 @@ import {
   setReviewPreviousDone,
   setSubtopicDone,
   setTopicDone,
+  resetWeekSlots,
   setWeekDayDone,
   subscribeReviews,
   swapWeekSlots,
@@ -146,6 +147,11 @@ export default function App(): JSX.Element {
     raise(`${a.id} and ${b.id} swapped weeks · ${a.id} now ${b.dates}`);
   };
 
+  const handleResetWeeks = async (): Promise<void> => {
+    await resetWeekSlots(uid);
+    raise('Timeline reset · every week back in its original slot');
+  };
+
   const handleSubmitReview = async (review: NewWeeklyReview): Promise<void> => {
     await addReview(uid, trackId, review);
   };
@@ -226,6 +232,7 @@ export default function App(): JSX.Element {
             weeks={weeks}
             onSetDayDone={handleWeekDay}
             onSwapWeeks={handleSwapWeeks}
+            onResetWeeks={handleResetWeeks}
           />
         );
       case 'progress':

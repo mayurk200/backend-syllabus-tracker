@@ -100,7 +100,13 @@ export interface WeekEntry {
   /** Day-by-day intake topics (Mon–Thu new material, Fri consolidation). */
   days: string[];
   gate: string; // weekly pass/fail milestone
-  milestone?: string; // 'M1', 'M4', … when a major milestone lands this week
+  /**
+   * 'M1', 'M4', … when a major milestone lands this week. Unlike the rest of a
+   * week, this belongs to the calendar slot rather than to the plan: the mock
+   * tests sit on fixed dates, so a swap leaves the milestone where it is and
+   * the incoming week inherits it.
+   */
+  milestone?: string | null;
   /** Which of the seven days have been worked, parallel to `days`. */
   dayDone?: boolean[];
   /**

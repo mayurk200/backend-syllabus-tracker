@@ -462,6 +462,10 @@ export async function setWeekDayDone(
  * carry that id in their names. After a swap the ids read out of sequence on
  * the timeline; that is the point.
  *
+ * The milestone is the one exception, and moves the other way: the mock tests
+ * are pinned to fixed dates, so it stays with the slot and the incoming week
+ * inherits it. Week ids never change.
+ *
  * `slottedAt` marks the move so that a week dropped onto dates that have
  * already passed is not then swept as missed. See `weekWasLive`.
  */
@@ -478,12 +482,14 @@ export async function swapWeekSlots(
     start: b.start,
     end: b.end,
     dates: b.dates,
+    milestone: b.milestone ?? null,
     slottedAt: now,
   });
   batch.update(weekDoc(uid, b.id), {
     start: a.start,
     end: a.end,
     dates: a.dates,
+    milestone: a.milestone ?? null,
     slottedAt: now,
   });
   await batch.commit();
@@ -491,6 +497,32 @@ export async function swapWeekSlots(
   await logActivity(uid, 'gate', {
     kind: 'week',
     label: `${a.id} ⇄ ${b.id} — ${a.id} now ${b.dates}, ${b.id} now ${a.dates}`,
+    hours: 0,
+  });
+}
+
+/**
+ * Put every week back in the slot it was authored in, undoing all swaps at
+ * once. Only the calendar is restored: the day ticks and every `missedAt` stay
+ * exactly as they are, because what you did and what you slipped on happened
+ * whatever order the plan was in.
+ */
+export async function resetWeekSlots(uid: string): Promise<void> {
+  const batch = writeBatch(db);
+  for (const w of GATE_WEEKS) {
+    batch.update(weekDoc(uid, w.id), {
+      start: w.start,
+      end: w.end,
+      dates: w.dates,
+      milestone: w.milestone ?? null,
+      slottedAt: null,
+    });
+  }
+  await batch.commit();
+
+  await logActivity(uid, 'gate', {
+    kind: 'week',
+    label: 'Timeline reset — every week back in its original slot',
     hours: 0,
   });
 }

@@ -18,6 +18,8 @@ interface TimelineProps {
   onSetDayDone: (week: WeekEntry, dayIndex: number, done: boolean) => Promise<void>;
   /** Trade two weeks' calendar slots — dates only, the plan stays put. */
   onSwapWeeks: (a: WeekEntry, b: WeekEntry) => Promise<void>;
+  /** Undo every swap, putting each week back in its authored slot. */
+  onResetWeeks: () => Promise<void>;
 }
 
 const AMBER = '#9a7b3f';
@@ -71,6 +73,7 @@ export function Timeline({
   weeks,
   onSetDayDone,
   onSwapWeeks,
+  onResetWeeks,
 }: TimelineProps): JSX.Element {
   const now = useNow();
   const [open, setOpen] = useState<string | null>(null);
@@ -78,6 +81,8 @@ export function Timeline({
   // Week being dragged along the strip, and the week it is hovering over.
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  // Reset asks once before it undoes an arrangement.
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const exam = useMemo(() => new Date(EXAM_ISO).getTime(), []);
   const campaignStart = useMemo(() => new Date(CAMPAIGN_START_ISO).getTime(), []);
@@ -146,6 +151,18 @@ export function Timeline({
     }
   };
 
+  const swapped = weeks.filter((w) => Boolean(w.slottedAt)).length;
+
+  const handleReset = async (): Promise<void> => {
+    setConfirmReset(false);
+    setBusy('reset');
+    try {
+      await onResetWeeks();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const milestoneWeek = weeks.find((w, i) => Boolean(w.milestone) && i > currentIndex);
 
   return (
@@ -178,10 +195,34 @@ export function Timeline({
           <span>
             Campaign · {weeks.length} weeks · {CAMPAIGN_HOURS}h
           </span>
-          <span style={{ color: drag ? ACCENT : undefined }}>
-            {drag
-              ? `drop ${drag} on another week to trade dates`
-              : 'drag a week to swap'}
+          <span className="flex items-baseline gap-3">
+            <span style={{ color: drag ? ACCENT : undefined }}>
+              {drag
+                ? `drop ${drag} on another week to trade dates`
+                : swapped > 0
+                  ? `drag a week to swap · ${swapped} moved`
+                  : 'drag a week to swap'}
+            </span>
+            {swapped > 0 && !drag && (
+              <button
+                onClick={() => (confirmReset ? void handleReset() : setConfirmReset(true))}
+                onBlur={() => setConfirmReset(false)}
+                disabled={busy === 'reset'}
+                className="k"
+                style={{
+                  color: confirmReset ? RED : ACCENT,
+                  textDecoration: 'underline',
+                  textUnderlineOffset: 3,
+                }}
+                title="Put every week back in the slot it started in. Ticks are kept."
+              >
+                {busy === 'reset'
+                  ? 'resetting…'
+                  : confirmReset
+                    ? 'reset the order? tap again'
+                    : 'reset order'}
+              </button>
+            )}
           </span>
           <span>
             {current
