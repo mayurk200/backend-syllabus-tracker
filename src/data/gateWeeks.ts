@@ -599,15 +599,10 @@ export const GATE_WEEKS: readonly WeekEntry[] = [
   },
 ];
 
-/** Index of the week containing `date`, or -1 if the campaign hasn't started / is over. */
-export function currentWeekIndex(date: Date = new Date()): number {
-  const t = date.getTime();
-  return GATE_WEEKS.findIndex((w) => {
-    const start = new Date(`${w.start}T00:00:00`).getTime();
-    const end = new Date(`${w.end}T23:59:59`).getTime();
-    return t >= start && t <= end;
-  });
-}
+// There is deliberately no "which week is it now?" helper here. The dates in
+// this file are where each week was authored, not where it sits: weeks can be
+// swapped, and only the live Firestore copy knows the current arrangement. Ask
+// the loaded weeks, as Timeline does.
 
 export function daysUntilExam(date: Date = new Date()): number {
   const exam = new Date(`${EXAM_DATE}T09:30:00`).getTime();

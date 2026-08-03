@@ -143,8 +143,13 @@ export default function App(): JSX.Element {
   // Two weeks trade calendar slots. Only the dates move, so the ticks and the
   // subject links stay with the plan they belong to.
   const handleSwapWeeks = async (a: WeekEntry, b: WeekEntry): Promise<void> => {
-    await swapWeekSlots(uid, a, b);
-    raise(`${a.id} and ${b.id} swapped weeks · ${a.id} now ${b.dates}`);
+    try {
+      await swapWeekSlots(uid, a, b);
+      raise(`${a.id} and ${b.id} swapped weeks · ${a.id} now ${b.dates}`);
+    } catch (e) {
+      // A refused swap explains itself rather than doing nothing.
+      raise(e instanceof Error ? e.message : 'That swap is not allowed.');
+    }
   };
 
   const handleResetWeeks = async (): Promise<void> => {
@@ -204,7 +209,7 @@ export default function App(): JSX.Element {
 
   // The only summary the shell itself needs: the count on the Backlog tab.
   const backlogCount = buildBacklog(trackId, phases, weeks).filter(
-    (i) => !i.completedLate,
+    (i) => !i.completedLate && !i.rescheduled,
   ).length;
 
   // Timeline only exists on the GATE track — fall back rather than blank out.

@@ -124,6 +124,110 @@ export interface WeekEntry {
   slottedAt?: number | null;
 }
 
+export const WEEK_KIND_LABEL: Record<WeekKind, string> = {
+  setup: 'setup',
+  core: 'core build',
+  revision: 'revision',
+  mock: 'mocks',
+  taper: 'taper',
+};
+
+/**
+ * Kinds that anchor the campaign and never move. The setup week holds the
+ * baseline diagnostic that everything after it is calibrated against, and the
+ * taper is the run-in to the exam window itself — neither means anything in a
+ * different slot.
+ */
+const PINNED_KINDS: ReadonlySet<WeekKind> = new Set<WeekKind>(['setup', 'taper']);
+
+export function weekIsPinned(week: WeekEntry): boolean {
+  return PINNED_KINDS.has(week.kind);
+}
+
+/**
+ * Why two weeks may not trade slots, or null if they may.
+ *
+ * Weeks swap within their own block only. The campaign is built in phases —
+ * core build, then revision, then mocks — and moving a week across that
+ * boundary reorders the method rather than the material, which is never what
+ * reshuffling a study plan is meant to do. Inside a block you are free.
+ */
+export function swapBlockedReason(a: WeekEntry, b: WeekEntry): string | null {
+  if (a.id === b.id) return null;
+  for (const w of [a, b]) {
+    if (weekIsPinned(w)) {
+      return w.kind === 'setup'
+        ? `${w.id} is the baseline setup week — the whole plan is calibrated against it, so it stays put.`
+        : `${w.id} is the taper into the exam window and cannot move.`;
+    }
+  }
+  if (a.kind !== b.kind) {
+    return `${a.id} is ${WEEK_KIND_LABEL[a.kind]} and ${b.id} is ${WEEK_KIND_LABEL[b.kind]} — weeks only swap within their own block.`;
+  }
+  return null;
+}
+
+export function canSwapWeeks(a: WeekEntry, b: WeekEntry): boolean {
+  return swapBlockedReason(a, b) === null;
+}
+
+/** The fields a swap rewrites on one of the two weeks. */
+export interface WeekSlotUpdate {
+  start: string;
+  end: string;
+  dates: string;
+  milestone: string | null;
+  slottedAt: number;
+  /** Written only when the move is leaving a slip behind. */
+  missedAt?: number;
+}
+
+/**
+ * A week being moved out of a slot that closed with work still open has
+ * slipped, whether or not the nightly sweep has reached it yet. Recording that
+ * at the moment of the move is what stops a swap from erasing a miss: without
+ * it, two already-closed weeks could trade slots and both would come out
+ * looking as though they had never been given their dates at all.
+ *
+ * A week that was itself parked on those dates after they closed is exempt —
+ * it never had the slot while the slot was live, so there is nothing to record.
+ */
+export function slipOnLeaving(week: WeekEntry, now: number): number | null {
+  if (week.missedAt) return null;
+  if (!weekEnded(week, now)) return null;
+  if (weekIsComplete(week)) return null;
+  if (!weekWasLive(week)) return null;
+  // The slip happened when the slot closed, not when it was noticed.
+  return weekEndMs(week);
+}
+
+/**
+ * What to write to each week when they trade slots. The dates move, and so does
+ * the milestone — the mock tests are booked against real dates, so that one
+ * belongs to the slot rather than to the plan. Everything else (the id, the
+ * days, the ticks) stays with the week.
+ *
+ * Pure, so the Firestore write and the tests run the same rules.
+ */
+export function swapUpdates(
+  a: WeekEntry,
+  b: WeekEntry,
+  now: number,
+): [WeekSlotUpdate, WeekSlotUpdate] {
+  const slot = (to: WeekEntry, from: WeekEntry): WeekSlotUpdate => {
+    const slip = slipOnLeaving(from, now);
+    return {
+      start: to.start,
+      end: to.end,
+      dates: to.dates,
+      milestone: to.milestone ?? null,
+      slottedAt: now,
+      ...(slip === null ? {} : { missedAt: slip }),
+    };
+  };
+  return [slot(b, a), slot(a, b)];
+}
+
 /** Sunday: protected rest, index 6 of every week, never counted as work. */
 export const REST_DAY_INDEX = 6;
 
@@ -280,6 +384,13 @@ export interface BacklogItem {
   missedAt: number | null;
   /** Ticked after it had already been missed. */
   completedLate: boolean;
+  /**
+   * Slipped once, then moved onto a slot that has not closed yet — so it has a
+   * date to be done on again and is no longer counted as outstanding. The slip
+   * itself stays on the record, and if the new slot also closes with work open
+   * the week simply reads late again.
+   */
+  rescheduled: boolean;
 }
 
 /** Local Monday 00:00 of the week containing `ts`. */

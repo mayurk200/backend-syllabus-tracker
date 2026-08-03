@@ -14,8 +14,9 @@ interface BacklogProps {
 
 const ACCENT = '#5980a6';
 const RED = '#a03c3c';
+const AMBER = '#9a7b3f';
 
-type Filter = 'all' | 'open' | 'late';
+type Filter = 'all' | 'open' | 'rescheduled' | 'late';
 
 function fmtDate(ms: number | null): string {
   if (ms === null) return '—';
@@ -43,24 +44,44 @@ export function Backlog({
   onSelectPhase,
   onOpenTimeline,
 }: BacklogProps): JSX.Element {
-  const [filter, setFilter] = useState<Filter>('open');
+  const [chosen, setFilter] = useState<Filter>('open');
   const now = Date.now();
 
   const all = buildBacklog(track.id, phases, weeks, now);
+  // The rescheduled chip only exists while something is rescheduled. Ticking
+  // the last of it would otherwise strand you on a filter with no button to
+  // leave by.
+  const hasRescheduled = all.some((i) => i.rescheduled);
+  const filter: Filter = chosen === 'rescheduled' && !hasRescheduled ? 'open' : chosen;
+
   const items = all.filter((i) => {
-    if (filter === 'open') return !i.completedLate;
+    if (filter === 'open') return !i.completedLate && !i.rescheduled;
+    if (filter === 'rescheduled') return i.rescheduled;
     if (filter === 'late') return i.completedLate;
     return true;
   });
 
-  const weeksMissed = all.filter((i) => i.kind === 'week').length;
+  const weeksMissed = all.filter((i) => i.kind === 'week' && !i.rescheduled).length;
+  const weeksMoved = all.filter((i) => i.kind === 'week' && i.rescheduled).length;
   const caughtUp = all.filter((i) => i.completedLate).length;
   const hours = backlogHours(all);
 
   const filters: Array<{ id: Filter; label: string }> = [
     { id: 'open', label: 'Still open' },
+    ...(hasRescheduled ? [{ id: 'rescheduled' as Filter, label: 'Rescheduled' }] : []),
     { id: 'late', label: 'Caught up late' },
     { id: 'all', label: 'Everything' },
+  ];
+
+  const tiles: Array<{ label: string; value: string; colour?: string }> = [
+    { label: 'Outstanding', value: `${hours}h`, colour: RED },
+    ...(track.id === 'gate'
+      ? [
+          { label: 'Weeks missed', value: String(weeksMissed) },
+          { label: 'Rescheduled', value: String(weeksMoved), colour: AMBER },
+        ]
+      : [{ label: 'Items', value: String(all.length) }]),
+    { label: 'Caught up late', value: String(caughtUp), colour: ACCENT },
   ];
 
   const open = (item: BacklogItem): void => {
@@ -90,37 +111,28 @@ export function Backlog({
             style={{ font: '400 12.5px/1.6 var(--font-body)', color: 'rgba(29,31,32,.7)' }}
           >
             {track.id === 'gate'
-              ? 'No campaign week has closed with work still open, and nothing is left unticked in a subject you have moved past.'
+              ? 'No campaign week has closed with work still open.'
               : `Nothing is left unticked in a ${track.unitLabel.toLowerCase()} you have already moved past.`}
           </p>
         </div>
       ) : (
         <>
           <div
-            className="grid grid-cols-3 gap-px border"
+            className="grid gap-px border"
             style={{
+              gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))`,
               background: 'rgba(29,31,32,.35)',
               borderColor: 'rgba(29,31,32,.35)',
             }}
           >
-            <div className="bg-bg p-3">
-              <div className="k">Outstanding</div>
-              <div style={{ font: '600 27px/1.1 var(--font-heading)', color: RED }}>
-                {hours}h
+            {tiles.map((t) => (
+              <div key={t.label} className="bg-bg p-3">
+                <div className="k">{t.label}</div>
+                <div style={{ font: '600 27px/1.1 var(--font-heading)', color: t.colour }}>
+                  {t.value}
+                </div>
               </div>
-            </div>
-            <div className="bg-bg p-3">
-              <div className="k">{track.id === 'gate' ? 'Weeks missed' : 'Items'}</div>
-              <div style={{ font: '600 27px/1.1 var(--font-heading)' }}>
-                {track.id === 'gate' ? weeksMissed : all.length}
-              </div>
-            </div>
-            <div className="bg-bg p-3">
-              <div className="k">Caught up late</div>
-              <div style={{ font: '600 27px/1.1 var(--font-heading)', color: ACCENT }}>
-                {caughtUp}
-              </div>
-            </div>
+            ))}
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -149,7 +161,11 @@ export function Backlog({
           <div style={{ borderTop: '1px solid rgba(29,31,32,.35)' }}>
             {items.length === 0 && (
               <div className="k py-4" style={{ letterSpacing: '.04em' }}>
-                Nothing in this filter.
+                {/* Everything behind can be rescheduled at once, which empties
+                    the default filter while the page still has rows in it. */}
+                {filter === 'open' && weeksMoved > 0
+                  ? `Nothing still open — ${weeksMoved} ${weeksMoved === 1 ? 'week is' : 'weeks are'} rescheduled.`
+                  : 'Nothing in this filter.'}
               </div>
             )}
             {items.map((item) => {
@@ -164,7 +180,11 @@ export function Backlog({
                   <span
                     className="mt-1 h-2 w-2 flex-none"
                     style={{
-                      background: item.completedLate ? ACCENT : RED,
+                      background: item.completedLate
+                        ? ACCENT
+                        : item.rescheduled
+                          ? AMBER
+                          : RED,
                       opacity: isWeek ? 1 : 0.45,
                     }}
                   />
@@ -192,13 +212,24 @@ export function Backlog({
                   <span className="flex-none text-right">
                     <span
                       className="k block"
-                      style={{ color: item.completedLate ? ACCENT : RED }}
+                      style={{
+                        color: item.completedLate
+                          ? ACCENT
+                          : item.rescheduled
+                            ? AMBER
+                            : RED,
+                      }}
                     >
-                      {item.completedLate ? 'caught up' : daysAgo(item.missedAt, now)}
+                      {item.completedLate
+                        ? 'caught up'
+                        : item.rescheduled
+                          ? 'rescheduled'
+                          : daysAgo(item.missedAt, now)}
                     </span>
                     <span className="k mt-1 block">
                       {item.hours ? `${item.hours}h` : ''}{' '}
-                      {item.missedAt !== null && fmtDate(item.missedAt)}
+                      {item.missedAt !== null &&
+                        `${item.rescheduled ? 'was due ' : ''}${fmtDate(item.missedAt)}`}
                     </span>
                   </span>
                 </button>
@@ -211,7 +242,7 @@ export function Backlog({
             style={{ letterSpacing: '.04em', lineHeight: 1.6, textTransform: 'none' }}
           >
             {track.id === 'gate'
-              ? 'A week is marked missed once it closes with study days still unticked, and that stays on the record even after you finish the work — which is why rows can read "caught up". Tick the work on the Timeline or in the subject; both update each other.'
+              ? 'This track is dated, so the calendar decides what is behind: a week is marked missed once it closes with study days still unticked, and that stays on the record even after you finish the work — which is why rows can read "caught up". Subjects are studied in campaign-week order, so nothing is behind merely for sitting earlier in the syllabus than something you have ticked. Drag a missed week onto a free slot on the Timeline and it reads "rescheduled" instead: it has a date to be done on again and stops counting against the outstanding hours, though the original slip stays listed. Miss the new slot too and it goes back to being late. Tick the work on the Timeline or in the subject; both update each other.'
               : `This track has no dates, so being behind is positional: anything unticked in a ${track.unitLabel.toLowerCase()} you have already moved past. Tick it and it leaves this list.`}
           </p>
         </>

@@ -35,9 +35,12 @@ import type {
 } from '../types';
 import {
   REST_DAY_INDEX,
+  swapBlockedReason,
+  swapUpdates,
   topicDoneFromSubtopics,
   topicHoursLogged,
   weekDayHours,
+  weekEndMs,
   weekIsComplete,
   weekWasLive,
 } from '../types';
@@ -467,7 +470,9 @@ export async function setWeekDayDone(
  * inherits it. Week ids never change.
  *
  * `slottedAt` marks the move so that a week dropped onto dates that have
- * already passed is not then swept as missed. See `weekWasLive`.
+ * already passed is not then swept as missed (see `weekWasLive`), and a week
+ * leaving a slot it had already lost is stamped on the way out so that the
+ * move records the slip rather than erasing it (see `slipOnLeaving`).
  */
 export async function swapWeekSlots(
   uid: string,
@@ -476,22 +481,14 @@ export async function swapWeekSlots(
   now = Date.now(),
 ): Promise<void> {
   if (a.id === b.id) return;
+  // The timeline already refuses these drops; this is the backstop.
+  const blocked = swapBlockedReason(a, b);
+  if (blocked) throw new Error(blocked);
 
+  const [updateA, updateB] = swapUpdates(a, b, now);
   const batch = writeBatch(db);
-  batch.update(weekDoc(uid, a.id), {
-    start: b.start,
-    end: b.end,
-    dates: b.dates,
-    milestone: b.milestone ?? null,
-    slottedAt: now,
-  });
-  batch.update(weekDoc(uid, b.id), {
-    start: a.start,
-    end: a.end,
-    dates: a.dates,
-    milestone: a.milestone ?? null,
-    slottedAt: now,
-  });
+  batch.update(weekDoc(uid, a.id), { ...updateA });
+  batch.update(weekDoc(uid, b.id), { ...updateB });
   await batch.commit();
 
   await logActivity(uid, 'gate', {
@@ -538,17 +535,16 @@ export async function sweepMissedWeeks(
   now = Date.now(),
 ): Promise<void> {
   const overdue = weeks.filter(
-    (w) =>
-      !w.missedAt &&
-      weekWasLive(w) &&
-      new Date(`${w.end}T23:59:59`).getTime() < now &&
-      !weekIsComplete(w),
+    (w) => !w.missedAt && weekWasLive(w) && weekEndMs(w) < now && !weekIsComplete(w),
   );
   if (overdue.length === 0) return;
 
   const batch = writeBatch(db);
   for (const w of overdue) {
-    batch.update(weekDoc(uid, w.id), { missedAt: now });
+    // Stamped with the moment the week closed, not the moment the sweep ran.
+    // Several weeks noticed on the same load slipped on different dates, and
+    // the backlog orders and dates itself by this.
+    batch.update(weekDoc(uid, w.id), { missedAt: weekEndMs(w) });
   }
   await batch.commit();
 

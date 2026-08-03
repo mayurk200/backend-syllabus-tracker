@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { WeekEntry, WeekOutcome } from '../types';
 import {
+  WEEK_KIND_LABEL,
   WEEK_OUTCOME_LABEL,
+  canSwapWeeks,
   dayBody,
   dayLabel,
   missedStudyDays,
   studyDayIndexes,
   weekDayHours,
   weekHoursDone,
+  weekIsPinned,
   weekOutcome,
 } from '../types';
 import { Corners } from './Corners';
@@ -36,13 +39,7 @@ const ACCENT = '#5980a6';
 const RED = '#a03c3c';
 const MUTED = 'rgba(29,31,32,.55)';
 
-const KIND_LABEL: Record<WeekEntry['kind'], string> = {
-  setup: 'setup',
-  core: 'core build',
-  revision: 'revision',
-  mock: 'mocks',
-  taper: 'taper',
-};
+const KIND_LABEL = WEEK_KIND_LABEL;
 
 const EXAM_ISO = '2027-02-06T09:30:00';
 const CAMPAIGN_START_ISO = '2026-07-27T00:00:00';
@@ -198,10 +195,10 @@ export function Timeline({
           <span className="flex items-baseline gap-3">
             <span style={{ color: drag ? ACCENT : undefined }}>
               {drag
-                ? `drop ${drag} on another week to trade dates`
+                ? `drop ${drag} on another ${KIND_LABEL[weeks.find((w) => w.id === drag)?.kind ?? 'core']} week`
                 : swapped > 0
-                  ? `drag a week to swap · ${swapped} moved`
-                  : 'drag a week to swap'}
+                  ? `drag to swap within a block · ${swapped} moved`
+                  : 'drag to swap within a block'}
             </span>
             {swapped > 0 && !drag && (
               <button
@@ -245,15 +242,26 @@ export function Timeline({
                     ? 'rgba(160,60,60,.65)'
                     : ACCENT;
             const isDragging = drag === w.id;
-            const isTarget = over === w.id && drag !== null && drag !== w.id;
+            const dragged = drag ? weeks.find((x) => x.id === drag) : undefined;
+            // Only weeks in the same block accept the drop; the rest grey out
+            // while a drag is live so the rule is visible rather than learned
+            // by having a drop refused.
+            const droppable = Boolean(dragged) && dragged!.id !== w.id && canSwapWeeks(dragged!, w);
+            const isTarget = over === w.id && droppable;
+            const movable = !weekIsPinned(w);
             return (
               <button
                 key={w.id}
                 onClick={() => setOpen(open === w.id ? null : w.id)}
                 className="flex flex-1 flex-col gap-[3px]"
-                title={`${w.id} · ${w.title} · ${w.dates} — drag onto another week to swap dates`}
-                draggable
+                title={`${w.id} · ${w.title} · ${w.dates} · ${KIND_LABEL[w.kind]}${
+                  movable
+                    ? ` — drag onto another ${KIND_LABEL[w.kind]} week to swap dates`
+                    : ' — pinned, cannot move'
+                }`}
+                draggable={movable}
                 onDragStart={(e) => {
+                  if (!movable) return;
                   setDrag(w.id);
                   e.dataTransfer.effectAllowed = 'move';
                   e.dataTransfer.setData('text/plain', w.id);
@@ -263,20 +271,24 @@ export function Timeline({
                   setOver(null);
                 }}
                 onDragOver={(e) => {
-                  if (!drag || drag === w.id) return;
+                  if (!droppable) return;
                   e.preventDefault();
                   e.dataTransfer.dropEffect = 'move';
                   setOver(w.id);
                 }}
                 onDragLeave={() => setOver((c) => (c === w.id ? null : c))}
                 onDrop={(e) => {
+                  if (!droppable) return;
                   e.preventDefault();
                   const from = drag ?? e.dataTransfer.getData('text/plain');
                   setDrag(null);
                   setOver(null);
                   if (from && from !== w.id) void handleDrop(from, w.id);
                 }}
-                style={{ cursor: 'grab', opacity: isDragging ? 0.35 : 1 }}
+                style={{
+                  cursor: movable ? 'grab' : 'default',
+                  opacity: isDragging ? 0.35 : dragged && !droppable ? 0.4 : 1,
+                }}
               >
                 <span
                   className="bx flex-1"
