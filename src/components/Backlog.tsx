@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { BacklogItem, Phase, TrackDef, WeekEntry } from '../types';
 import { backlogHours, buildBacklog } from '../lib/backlog';
 import { Corners } from './Corners';
+import { PageHead } from './PageHead';
 
 interface BacklogProps {
   track: TrackDef;
@@ -69,22 +70,15 @@ export function Backlog({
 
   return (
     <div className="space-y-5">
-      <div
-        className="flex flex-wrap items-end justify-between gap-2 pb-3.5"
-        style={{ borderBottom: '1px solid var(--ink)' }}
-      >
-        <div>
-          <div className="k">{track.name}</div>
-          <div style={{ font: '600 26px/1.05 var(--font-heading)', marginTop: 4 }}>
-            Backlog
-          </div>
-        </div>
-        <span className="k">
-          {track.id === 'gate'
+      <PageHead
+        kicker={track.name}
+        title="Backlog"
+        meta={
+          track.id === 'gate'
             ? `${weeksMissed} weeks missed · ${hours}h outstanding`
-            : `${hours}h outstanding`}
-        </span>
-      </div>
+            : `${hours}h outstanding`
+        }
+      />
 
       {all.length === 0 ? (
         <div className="blueprint p-4">

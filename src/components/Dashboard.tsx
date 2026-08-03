@@ -89,29 +89,97 @@ export function Dashboard({
 
   const reviewThisWeek = reviews.some((r) => r.createdAt >= weekStart);
 
-  return (
-    <div className="space-y-5">
-      {/* ── page head ─────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-baseline justify-between gap-2 pb-3.5"
-        style={{ borderBottom: '1px solid var(--ink)' }}
-      >
-        <div>
-          <div className="k">
-            {track.name} {week ? `· week ${week}` : ''}
-          </div>
-          <div style={{ font: '600 26px/1.05 var(--font-heading)', marginTop: 4 }}>
-            Dashboard
-          </div>
-        </div>
-        <span className="k">
-          {weekHours} / {target}h this week ·{' '}
-          {reviewThisWeek ? 'review written' : 'review due Sunday'}
-        </span>
-      </div>
+  const subsDone = phases.reduce(
+    (s, p) => s + p.topics.reduce((n, t) => n + t.subtopics.filter((x) => x.done).length, 0),
+    0,
+  );
+  const subsTotal = phases.reduce(
+    (s, p) => s + p.topics.reduce((n, t) => n + t.subtopics.length, 0),
+    0,
+  );
 
-      {/* ── current gate + the two numbers that report to it ──────────── */}
-      <div className="grid gap-4 md:grid-cols-[1fr_300px]">
-        <div className="blueprint p-4">
+  const band: Array<{ label: string; value: string; note: string; fg?: string }> = [
+    {
+      label: 'Gates',
+      value: `${gatesPassed}/${unitCount}`,
+      note: 'complete when fully ticked',
+      fg: 'var(--accent-700)',
+    },
+    {
+      label: 'Hours',
+      value: `${totalLogged}/${track.totalHours}`,
+      note: 'first-pass learning',
+      fg: MUTED,
+    },
+    {
+      label: 'Subtopics',
+      value: `${subsDone}/${subsTotal}`,
+      note: track.id === 'gate' ? 'one per study day' : 'the checkable grain',
+    },
+    {
+      label: 'This week',
+      value: `${weekHours}/${target}h`,
+      note: reviewThisWeek ? 'review written' : 'review due Sunday',
+    },
+  ];
+
+  return (
+    <div className="space-y-[34px]">
+      {/* ── hero ──────────────────────────────────────────────────────── */}
+      <section
+        className="pb-[34px]"
+        style={{ borderBottom: '1px solid rgba(29,31,32,.16)' }}
+      >
+        <div className="k">
+          {track.name}
+          {week ? ` · week ${week}` : ''}
+          {current ? ` · ${track.unitLabel.toLowerCase()} ${currentIndex} of ${unitCount}` : ''}
+        </div>
+        <h1 className="display-xl mt-3.5" style={{ maxWidth: '15ch' }}>
+          You advance on the work, not the hours.
+        </h1>
+        <p
+          className="mt-[18px]"
+          style={{
+            maxWidth: '56ch',
+            font: '400 15px/1.65 var(--font-body)',
+            color: 'rgba(29,31,32,.7)',
+          }}
+        >
+          {track.unitCount} {track.unitLabelPlural.toLowerCase()}, one artifact each.
+          A {track.unitLabel.toLowerCase()} closes when every subtopic in it is ticked —
+          so tick one only when you could actually produce the thing it names.
+        </p>
+      </section>
+
+      {/* ── the four numbers ──────────────────────────────────────────── */}
+      <section
+        className="grid grid-cols-2 gap-px border md:grid-cols-4"
+        style={{ background: 'rgba(29,31,32,.35)', borderColor: 'rgba(29,31,32,.35)' }}
+      >
+        {band.map((s) => (
+          <div key={s.label} className="bg-bg p-4">
+            <div className="k">{s.label}</div>
+            <div
+              className="mt-2.5"
+              style={{
+                font: '600 clamp(26px,3vw,34px)/1 var(--font-heading)',
+                fontVariantNumeric: 'tabular-nums',
+                color: s.fg,
+              }}
+            >
+              {s.value}
+            </div>
+            <div className="k mt-2" style={{ letterSpacing: '.08em' }}>
+              {s.note}
+            </div>
+          </div>
+        ))}
+      </section>
+
+      {/* ── the one thing you are on ──────────────────────────────────── */}
+      <div>
+        <div className="blueprint p-[26px]">
           <Corners />
           {current ? (
             <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
@@ -178,45 +246,6 @@ export function Dashboard({
           )}
         </div>
 
-        <div
-          className="grid grid-rows-2 gap-px border"
-          style={{ background: 'rgba(29,31,32,.35)', borderColor: 'rgba(29,31,32,.35)' }}
-        >
-          <div className="flex items-center justify-between bg-bg p-3.5">
-            <div>
-              <div className="k">Gates</div>
-              <div style={{ font: '600 30px/1 var(--font-heading)', color: ACCENT }}>
-                {gatesPassed}/{unitCount}
-              </div>
-            </div>
-            <div className="h-2 w-[110px]" style={{ background: BARBG }}>
-              <div
-                className="h-full"
-                style={{
-                  width: `${unitCount ? (gatesPassed / unitCount) * 100 : 0}%`,
-                  background: ACCENT,
-                }}
-              />
-            </div>
-          </div>
-          <div className="flex items-center justify-between bg-bg p-3.5">
-            <div>
-              <div className="k">Hours</div>
-              <div style={{ font: '600 22px/1.1 var(--font-heading)', color: MUTED }}>
-                {totalLogged}/{track.totalHours}
-              </div>
-            </div>
-            <div className="h-2 w-[110px]" style={{ background: BARBG }}>
-              <div
-                className="h-full"
-                style={{
-                  width: `${Math.min(100, (totalLogged / track.totalHours) * 100)}%`,
-                  background: 'rgba(89,128,166,.5)',
-                }}
-              />
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* ── ladder · up next + pace · ratio + activity ─────────────────── */}

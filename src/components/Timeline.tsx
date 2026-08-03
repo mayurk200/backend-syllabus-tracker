@@ -11,6 +11,7 @@ import {
   weekOutcome,
 } from '../types';
 import { Corners } from './Corners';
+import { PageHead } from './PageHead';
 
 interface TimelineProps {
   weeks: WeekEntry[];
@@ -128,30 +129,26 @@ export function Timeline({ weeks, onSetDayDone }: TimelineProps): JSX.Element {
   return (
     <div className="space-y-5">
       {/* ── head: what it is, and how long is left ────────────────────── */}
-      <div
-        className="flex flex-wrap items-end justify-between gap-3 pb-3.5"
-        style={{ borderBottom: '1px solid var(--ink)' }}
-      >
-        <div>
-          <div className="k">GATE 2027 CS · exam 6 Feb 2027, 09:30</div>
-          <div style={{ font: '600 26px/1.05 var(--font-heading)', marginTop: 4 }}>
-            Timeline
+      <PageHead
+        kicker="GATE 2027 CS · exam 6 Feb 2027, 09:30"
+        title="Timeline"
+        meta={
+          <div className="text-right">
+            <div className="k">Countdown</div>
+            <div
+              style={{
+                font: '300 34px/1 var(--font-heading)',
+                fontVariantNumeric: 'tabular-nums',
+                marginTop: 4,
+              }}
+            >
+              {afterExam
+                ? 'exam window'
+                : `${days}d ${pad(hrs)}:${pad(mins)}:${pad(secs)}`}
+            </div>
           </div>
-        </div>
-        <div className="text-right">
-          <div className="k">Countdown</div>
-          <div
-            style={{
-              font: '600 30px/1 var(--font-heading)',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {afterExam
-              ? 'exam window'
-              : `${days}d ${pad(hrs)}:${pad(mins)}:${pad(secs)}`}
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* ── the 28-week strip, with milestone ticks and the live needle ── */}
       <div>

@@ -21,9 +21,15 @@ book chapter that covers it. The GATE text is verbatim from the official IIT
 Madras syllabus, with the 2027 additions and removals flagged.
 
 The GATE **Timeline** tab is live: it ticks every second, counts down to the
-first exam session, highlights the current week against real dates, and lets
-you mark each weekly gate passed or failed. Every tick, gate and review is
-logged, so the dashboard reports real hours per day rather than estimates.
+first exam session, highlights the current week against real dates, and settles
+each week's outcome from the day ticks alone — passed, some done, or missed,
+with the missed days named. Every tick, gate and review is logged, so the
+dashboard reports real hours per day rather than estimates.
+
+The shell is a **sticky top navigation** with the exam countdown running in the
+header and a live backlog badge, dropping to a bottom tab bar on a phone. A
+splash veil covers the first Firestore read, every page fades in on its own, and
+completing a unit raises a toast — the only time the interface interrupts you.
 
 - **Stack:** Vite + React + TypeScript, Tailwind (no component library)
 - **Backend:** Firebase — Firestore for data (no login)
@@ -207,6 +213,25 @@ gate, working a campaign day or saving a review appends one document to
 `activity` with its hour delta and a client timestamp. That log is what makes
 "hours this week", the weekday bars and the pace chart a record rather than an
 estimate — nothing on those charts is inferred.
+
+## Shell
+
+One frame holds every page, so nothing is ever more than one tap away:
+
+- **`TopNav`** — sticky header carrying the track switcher, the seven pages
+  (Timeline only appears on GATE), a live count of what is in the backlog, and
+  the exam countdown ticking every second. Below `md` the links collapse into a
+  bottom tab bar, which is where a phone expects them.
+- **`Splash`** — a full-screen veil over the first Firestore read, so the app is
+  never seen half-loaded. It names the track it is loading.
+- **`PageHead`** — every page opens the same way: kicker, large light heading,
+  summary pushed right. Consistent enough that you can tell where you are
+  without reading the words.
+- **`Toast`** — raised only when a unit newly completes. Nothing else in the
+  interface interrupts you.
+- **Page transitions** — the content area is keyed on track + page + open unit,
+  so switching anything replays a short fade-and-rise. All motion is disabled
+  under `prefers-reduced-motion`.
 
 ## Screens
 

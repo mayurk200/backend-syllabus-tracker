@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ActivityEvent, Meta, NewWeeklyReview, WeeklyReview } from '../types';
 import { hoursByDay, startOfWeek } from '../types';
 import { Corners } from './Corners';
+import { PageHead } from './PageHead';
 
 interface ReviewWriteProps {
   reviews: WeeklyReview[];
@@ -101,23 +102,11 @@ export function ReviewWrite({
 
   return (
     <div className="space-y-5">
-      <div
-        className="flex flex-wrap items-baseline justify-between gap-2 pb-3.5"
-        style={{ borderBottom: '1px solid var(--ink)' }}
-      >
-        <div>
-          <div className="k">
-            {week ? `Week ${week} · ` : ''}
-            {fmtRange(weekStart)}
-          </div>
-          <div style={{ font: '600 26px/1.05 var(--font-heading)', marginTop: 4 }}>
-            Weekly review
-          </div>
-        </div>
-        <span className="k">
-          {reviews.length} {reviews.length === 1 ? 'review' : 'reviews'} written
-        </span>
-      </div>
+      <PageHead
+        kicker={`${week ? `Week ${week} · ` : ''}${fmtRange(weekStart)}`}
+        title="Weekly review"
+        meta={`${reviews.length} ${reviews.length === 1 ? 'review' : 'reviews'} written`}
+      />
 
       <div className="grid gap-7 md:grid-cols-[1fr_320px]">
         {/* ── the writing ─────────────────────────────────────────────── */}

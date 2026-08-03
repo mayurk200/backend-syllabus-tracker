@@ -13,6 +13,7 @@ import {
   backendTopicSource,
 } from '../data/backendSyllabus';
 import { Corners } from './Corners';
+import { PageHead } from './PageHead';
 import type { ViewChapter, ViewConcept } from './SyllabusParts';
 import { ChapterBlock, LearnFromBlock } from './SyllabusParts';
 
@@ -160,22 +161,11 @@ export function Syllabus({ track, phases, onSelectPhase }: SyllabusProps): JSX.E
 
   return (
     <div className="space-y-5">
-      {/* ── head ──────────────────────────────────────────────────────── */}
-      <div
-        className="flex flex-wrap items-end justify-between gap-3 pb-3.5"
-        style={{ borderBottom: '1px solid var(--ink)' }}
-      >
-        <div>
-          <div className="k">{track.name}</div>
-          <div style={{ font: '600 26px/1.05 var(--font-heading)', marginTop: 4 }}>
-            Syllabus
-          </div>
-        </div>
-        <span className="k">
-          {units.length} {track.unitLabelPlural.toLowerCase()} · {totalChapters} chapters ·{' '}
-          {totalConcepts} concepts
-        </span>
-      </div>
+      <PageHead
+        kicker={track.name}
+        title="Syllabus"
+        meta={`${units.length} ${track.unitLabelPlural.toLowerCase()} · ${totalChapters} chapters · ${totalConcepts} concepts`}
+      />
 
       {/* ── provenance ────────────────────────────────────────────────── */}
       <div className="blueprint p-3.5">

@@ -9,6 +9,7 @@ import {
 } from '../data/backendSyllabus';
 import type { ViewChapter } from './SyllabusParts';
 import { ChapterBlock, LearnFromBlock, SourceLine } from './SyllabusParts';
+import { PageHead } from './PageHead';
 
 interface PhaseDetailProps {
   phase: Phase;
@@ -134,24 +135,15 @@ export function PhaseDetail({
       </div>
 
       {/* ── head ──────────────────────────────────────────────────────── */}
-      <div
-        className="flex flex-wrap items-end justify-between gap-2 pb-3.5"
-        style={{ borderBottom: '1px solid var(--ink)' }}
-      >
-        <div className="min-w-0">
-          <div className="k">
-            {track.unitLabel} {unitIndex} of {phases.length || track.unitCount}
-            {phase.weeks ? ` · ${phase.weeks}` : ''}
-          </div>
-          <div style={{ font: '600 26px/1.05 var(--font-heading)', marginTop: 4 }}>
-            {phase.title}
-          </div>
-        </div>
-        <span className="k">
-          {phase.hours}h · {phase.topics.length} topics · {subsTotal} subtopics
-          {phase.targetMarks ? ` · ${phase.targetMarks} marks target` : ''}
-        </span>
-      </div>
+      <PageHead
+        kicker={`${track.unitLabel} ${unitIndex} of ${phases.length || track.unitCount}${
+          phase.weeks ? ` · ${phase.weeks}` : ''
+        }`}
+        title={phase.title}
+        meta={`${phase.hours}h · ${phase.topics.length} topics · ${subsTotal} subtopics${
+          phase.targetMarks ? ` · ${phase.targetMarks} marks target` : ''
+        }`}
+      />
 
       <div className="grid gap-7 md:grid-cols-[380px_1fr] md:items-start">
         {/* ── gate + the two numbers ─────────────────────────────────── */}

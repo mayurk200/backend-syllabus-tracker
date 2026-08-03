@@ -1,6 +1,7 @@
 import type { Meta, Phase, TrackDef, WeeklyReview } from '../types';
 import { hoursLogged, isPhaseComplete } from '../types';
 import { Corners } from './Corners';
+import { PageHead } from './PageHead';
 
 interface ProfileProps {
   phases: Phase[];
@@ -47,12 +48,15 @@ export function Profile({
   ];
 
   return (
-    <div className="blueprint p-4">
+    <div className="space-y-5">
+      <PageHead
+        kicker={track.name}
+        title="Profile"
+        meta={meta ? `since ${meta.startDate} · week ${week}` : ''}
+      />
+
+      <div className="blueprint p-4">
       <Corners />
-      <div className="mb-4 flex items-baseline justify-between">
-        <span className="h">PROFILE</span>
-        <span className="k">{meta ? `since ${meta.startDate}` : ''}</span>
-      </div>
 
       {/* stats */}
       <div
@@ -164,6 +168,7 @@ export function Profile({
             </div>
           );
         })}
+      </div>
       </div>
       </div>
       </div>

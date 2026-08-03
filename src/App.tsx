@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTrackerData } from './hooks/useTrackerData';
 import {
   addReview,
@@ -15,7 +15,7 @@ import type {
   WeekEntry,
   WeeklyReview,
 } from './types';
-import { TRACKS, hoursLogged, isPhaseComplete, trackDef, weekIsComplete } from './types';
+import { isPhaseComplete, trackDef } from './types';
 import { Backlog } from './components/Backlog';
 import { Dashboard } from './components/Dashboard';
 import { Progress } from './components/Progress';
@@ -25,8 +25,9 @@ import { Reviews } from './components/Reviews';
 import { ReviewWrite } from './components/ReviewWrite';
 import { Syllabus } from './components/Syllabus';
 import { Timeline } from './components/Timeline';
-import { Sidebar, type Tab } from './components/Sidebar';
-import { GATE_SYLLABUS, countConcepts } from './data/gateSyllabus';
+import { Splash } from './components/Splash';
+import { Toast, useToast } from './components/Toast';
+import { TopNav, type Tab } from './components/TopNav';
 import { buildBacklog } from './lib/backlog';
 
 // No login. Single-user app: all data lives under one fixed id in Firestore.
@@ -65,10 +66,41 @@ export default function App(): JSX.Element {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [selectedPhaseId, setSelectedPhaseId] = useState<number | null>(null);
   const [reviews, setReviews] = useState<WeeklyReview[]>([]);
+  const { toast, raise } = useToast();
 
   useEffect(() => {
     return subscribeReviews(uid, trackId, setReviews, (e) => console.error(e));
   }, [uid, trackId]);
+
+  // Announce completions as they land. Completion is derived from the ticks, so
+  // this watches the data rather than any button press — which means it fires
+  // whichever page the tick was made on.
+  const completedIds = phases.filter(isPhaseComplete).map((p) => p.id);
+  const completedKey = completedIds.join(',');
+  const seenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading) return;
+    const previous = seenRef.current;
+    seenRef.current = completedKey;
+    if (previous === null || previous === completedKey) return;
+
+    const before = new Set(previous.split(',').filter(Boolean));
+    const added = completedIds.filter((id) => !before.has(String(id)));
+    if (added.length === 0) return;
+
+    const phase = phases.find((p) => p.id === added[0]);
+    if (!phase) return;
+    const total = phases.length;
+    const done = completedIds.length;
+    raise(`${phase.title} complete · ${done} of ${total} ${track.unitLabelPlural.toLowerCase()}`);
+    // completedIds/phases are derived from completedKey; keying on it is enough.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedKey, loading]);
+
+  // Reset the watcher when the track changes so switching never fires a toast.
+  useEffect(() => {
+    seenRef.current = null;
+  }, [trackId]);
 
   if (error) {
     return (
@@ -77,7 +109,7 @@ export default function App(): JSX.Element {
       </Centered>
     );
   }
-  if (loading) return <Centered>Loading your syllabus…</Centered>;
+  if (loading) return <Splash track={track} label="Loading your syllabus…" />;
 
   const selectedPhase: Phase | undefined = phases.find((p) => p.id === selectedPhaseId);
 
@@ -156,21 +188,7 @@ export default function App(): JSX.Element {
     setTrackId(next);
   };
 
-  // sidebar/footer summary stats
-  const gatesPassed = phases.filter(isPhaseComplete).length;
-  const totalHours = phases.reduce((sum, p) => sum + hoursLogged(p), 0);
-  const allSubs = phases.flatMap((p) => p.topics.flatMap((t) => t.subtopics));
-  const topicPct =
-    allSubs.length === 0
-      ? 0
-      : Math.round((allSubs.filter((s) => s.done).length / allSubs.length) * 100);
-  // Derived from the day checkboxes, same as the Timeline itself.
-  const weeksPassed = weeks.filter(weekIsComplete).length;
-
-  // Syllabus size: authored concepts for GATE, the live subtopic tree for backend.
-  const conceptCount =
-    trackId === 'gate' ? countConcepts(GATE_SYLLABUS) : allSubs.length;
-
+  // The only summary the shell itself needs: the count on the Backlog tab.
   const backlogCount = buildBacklog(trackId, phases, weeks).filter(
     (i) => !i.completedLate,
   ).length;
@@ -266,85 +284,37 @@ export default function App(): JSX.Element {
   const mobileTabs = MOBILE_TABS.filter((t) => !t.gateOnly || trackId === 'gate');
 
   return (
-    <div className="min-h-dvh md:flex">
-      <Sidebar
+    <div className="flex min-h-dvh flex-col">
+      <TopNav
         tab={activeTab}
         track={track}
-        phases={phases}
-        conceptCount={conceptCount}
+        inDetail={Boolean(selectedPhase)}
         backlogCount={backlogCount}
-        selectedPhaseId={selectedPhaseId}
-        gatesPassed={gatesPassed}
-        totalHours={totalHours}
-        topicPct={topicPct}
-        reviewsCount={reviews.length}
-        weeksPassed={weeksPassed}
         onSelect={goTab}
         onSelectTrack={goTrack}
-        onSelectPhase={goPhase}
-        onExport={handleExport}
       />
 
-      <div className="flex min-h-dvh flex-1 flex-col">
-        {/* mobile track switcher — the sidebar covers desktop (wireframe 9c) */}
-        <header
-          className="flex-none px-4 py-3 md:hidden"
-          style={{ borderBottom: '1px solid rgba(29,31,32,.35)' }}
-        >
-          <div className="grid grid-cols-2 gap-1.5">
-            {TRACKS.map((t) => {
-              const active = t.id === trackId;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => goTrack(t.id)}
-                  className="bx p-2 text-left"
-                  style={{
-                    background: active ? '#5980a6' : 'transparent',
-                    color: active ? '#fff' : 'rgba(29,31,32,.65)',
-                    borderColor: active ? '#5980a6' : undefined,
-                  }}
-                >
-                  <div
-                    style={{
-                      font: '600 13px/1 var(--font-heading)',
-                      letterSpacing: '.06em',
-                    }}
-                  >
-                    {t.shortName}
-                  </div>
-                  <div
-                    style={{
-                      font: '400 10px/1.2 var(--font-body)',
-                      marginTop: 3,
-                      opacity: 0.8,
-                    }}
-                  >
-                    {t.totalHours}h · {t.unitCount} {t.unitLabelPlural.toLowerCase()}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </header>
+      <main className="flex-1 px-4 pb-24 pt-7 md:px-8">
+        {/* keyed so every route change replays the entry animation */}
+        <div key={`${trackId}:${activeTab}:${selectedPhaseId ?? ''}`} className="pg mx-auto w-full max-w-[1160px]">
+          {page}
+        </div>
+      </main>
 
-        <main className="flex-1 overflow-y-auto px-4 pb-6 pt-4 md:px-8 md:py-8">
-          <div className="mx-auto w-full max-w-md md:max-w-5xl">{page}</div>
-        </main>
+      {/* mobile bottom tab bar — the top nav carries desktop */}
+      <nav className="tabbar sticky bottom-0 flex-none md:hidden">
+        {mobileTabs.map((t) => (
+          <button
+            key={t.id}
+            className={`tab ${activeTab === t.id && !selectedPhase ? 'active' : ''}`}
+            onClick={() => goTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
 
-        {/* mobile bottom tab bar */}
-        <nav className="tabbar sticky bottom-0 flex-none md:hidden">
-          {mobileTabs.map((t) => (
-            <button
-              key={t.id}
-              className={`tab ${activeTab === t.id && !selectedPhase ? 'active' : ''}`}
-              onClick={() => goTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-      </div>
+      {toast && <Toast text={toast} />}
     </div>
   );
 }

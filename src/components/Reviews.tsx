@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ActivityEvent, Meta, Phase, TrackDef, WeeklyReview } from '../types';
 import { hoursLogged, isPhaseComplete, startOfWeek } from '../types';
+import { PageHead } from './PageHead';
 
 interface ReviewsProps {
   reviews: WeeklyReview[];
@@ -93,15 +94,11 @@ export function Reviews({
 
   return (
     <div className="space-y-5">
-      <div
-        className="flex flex-wrap items-baseline justify-between gap-2 pb-3.5"
-        style={{ borderBottom: '1px solid var(--ink)' }}
-      >
-        <div style={{ font: '600 26px/1 var(--font-heading)' }}>Reviews</div>
-        <span className="k">
-          {reviews.length} weeks · {totalLogged}h · {gatesPassed} gates
-        </span>
-      </div>
+      <PageHead
+        kicker="Written every Sunday"
+        title="Reviews"
+        meta={`${reviews.length} weeks · ${totalLogged}h · ${gatesPassed} gates`}
+      />
 
       {/* filters — a rail on desktop, a row on mobile */}
       <div className="flex flex-wrap gap-2">

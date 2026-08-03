@@ -1,6 +1,7 @@
 import type { Meta, Phase, TrackDef } from '../types';
 import { hoursLogged, isPhaseComplete, topicCompletion } from '../types';
 import { Corners } from './Corners';
+import { PageHead } from './PageHead';
 
 interface ProgressProps {
   phases: Phase[];
@@ -37,14 +38,16 @@ export function Progress({
   const unitCount = phases.length || track.unitCount;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      <PageHead
+        kicker={track.name}
+        title="Progress"
+        meta={`${gatesPassed}/${unitCount} complete · ${totalHours}h · ${week ? `week ${week}` : 'not started'}`}
+      />
+
       {/* Instrument panel (1b): output vs input, then the phase matrix */}
       <div className="blueprint p-4">
         <Corners />
-        <div className="mb-3.5 flex items-baseline justify-between">
-          <span className="h">{track.shortName.toUpperCase()} — PROGRESS</span>
-          <span className="k">{week ? `week ${week}` : 'not started'}</span>
-        </div>
 
         {/* Output (gates) emphasized over input (hours) — advance on the gate */}
         <div

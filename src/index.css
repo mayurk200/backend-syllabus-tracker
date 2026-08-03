@@ -37,13 +37,84 @@
   }
 }
 
+/* Motion, from the Premium App design. Everything is short, eased and
+   respectful of prefers-reduced-motion below. */
+@keyframes sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@keyframes draw {
+  0% { width: 0; }
+  100% { width: 100%; }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+@keyframes fadeUp {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes veil {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes tick {
+  0% { transform: scale(0.6); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @layer components {
   /* kicker + heading, ported from the wireframe */
   .k {
     font: 600 9.5px/1 var(--font-heading);
-    letter-spacing: 0.14em;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: rgba(29, 31, 32, 0.5);
+    color: rgba(29, 31, 32, 0.62);
+  }
+
+  /* page transition — every route fades up on entry */
+  .pg {
+    animation: fadeUp 0.45s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  /* premium page head: light, large, tight */
+  .display {
+    font: 400 clamp(32px, 5vw, 46px) / 1.02 var(--font-heading);
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .display-xl {
+    font: 400 clamp(34px, 5.6vw, 60px) / 1.02 var(--font-heading);
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  /* top navigation */
+  .topnav-link {
+    padding: 8px 14px;
+    border-bottom: 2px solid transparent;
+    color: rgba(29, 31, 32, 0.62);
+    font: 500 13px var(--font-body);
+    cursor: pointer;
+    transition: color 0.15s ease;
+    white-space: nowrap;
+  }
+  .topnav-link:hover { color: var(--accent-700); }
+  .topnav-link.active {
+    border-bottom-color: var(--accent);
+    color: var(--accent-700);
   }
   .h {
     font: 600 15px/1.1 var(--font-heading);
