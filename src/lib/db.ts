@@ -13,7 +13,9 @@ import {
   writeBatch,
   Timestamp,
   type Unsubscribe,
+  type WriteBatch,
 } from 'firebase/firestore';
+import type { TrackerExport } from './transfer';
 import { db } from './firebase';
 import { SEED_PHASES, verifySeedHours } from '../data/seedData';
 import { GATE_SUBJECTS, verifyGateHours } from '../data/gateData';
@@ -34,6 +36,7 @@ import type {
   WeekStatusMap,
 } from '../types';
 import {
+  MILESTONE_MAX,
   REST_DAY_INDEX,
   swapBlockedReason,
   swapUpdates,
@@ -457,6 +460,31 @@ export async function setWeekDayDone(
 }
 
 /**
+ * Record what was scored in a week's milestone test. Pass null to clear it.
+ */
+export async function setMilestoneScore(
+  uid: string,
+  week: WeekEntry,
+  score: number | null,
+): Promise<void> {
+  // Slot-bound like the milestone itself: `swapUpdates` carries the two
+  // together so a result never ends up filed under a different test.
+  const clamped =
+    score === null ? null : Math.max(0, Math.min(MILESTONE_MAX, Math.round(score)));
+  if ((week.milestoneScore ?? null) === clamped) return;
+  await updateDoc(weekDoc(uid, week.id), { milestoneScore: clamped });
+
+  await logActivity(uid, 'gate', {
+    kind: 'week',
+    label:
+      clamped === null
+        ? `${week.milestone ?? week.id} score cleared`
+        : `${week.milestone ?? week.id} scored ${clamped}/${MILESTONE_MAX} — ${week.id}`,
+    hours: 0,
+  });
+}
+
+/**
  * Trade two weeks' calendar slots.
  *
  * Only the dates move. The id, the plan, the day ticks and any record of a slip
@@ -504,7 +532,12 @@ export async function swapWeekSlots(
  * exactly as they are, because what you did and what you slipped on happened
  * whatever order the plan was in.
  */
-export async function resetWeekSlots(uid: string): Promise<void> {
+export async function resetWeekSlots(uid: string, current: WeekEntry[]): Promise<void> {
+  // Scores are slot-bound, so they stay on the dates they were sat on: each
+  // authored week takes the score of whichever week is sitting in its slot now.
+  const scoreBySlot = new Map(
+    current.map((w) => [w.start, w.milestoneScore ?? null] as const),
+  );
   const batch = writeBatch(db);
   for (const w of GATE_WEEKS) {
     batch.update(weekDoc(uid, w.id), {
@@ -512,6 +545,7 @@ export async function resetWeekSlots(uid: string): Promise<void> {
       end: w.end,
       dates: w.dates,
       milestone: w.milestone ?? null,
+      milestoneScore: scoreBySlot.get(w.start) ?? null,
       slottedAt: null,
     });
   }
@@ -555,6 +589,63 @@ export async function sweepMissedWeeks(
       hours: 0,
     });
   }
+}
+
+// ---- Import ----
+
+/** Firestore caps a batch at 500 writes; campaign history can exceed that. */
+const BATCH_LIMIT = 400;
+
+async function commitInChunks(ops: Array<(batch: WriteBatch) => void>): Promise<void> {
+  for (let i = 0; i < ops.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    for (const op of ops.slice(i, i + BATCH_LIMIT)) op(batch);
+    await batch.commit();
+  }
+}
+
+/**
+ * Restore a track from a file this app exported.
+ *
+ * Units, weeks and the profile are replaced outright — they are fixed sets, so
+ * writing them by id leaves nothing stale behind. Reviews and activity are
+ * written by id too, which merges rather than replaces: a restore onto a
+ * half-used track keeps anything the file does not mention, and re-importing
+ * the same file twice changes nothing.
+ */
+export async function importTracker(uid: string, data: TrackerExport): Promise<void> {
+  const track = data.track;
+  const ops: Array<(batch: WriteBatch) => void> = [];
+
+  ops.push((b) => b.set(trackDoc(uid, track), { id: track, seededAt: serverTimestamp() }));
+
+  for (const phase of data.phases) {
+    const { id, ...rest } = phase;
+    ops.push((b) => b.set(phaseDoc(uid, track, id), rest as PhaseDoc));
+  }
+
+  if (track === 'gate' && data.weeks) {
+    for (const week of data.weeks) {
+      const { id, ...rest } = week;
+      ops.push((b) => b.set(weekDoc(uid, id), rest));
+    }
+  }
+
+  if (data.meta) ops.push((b) => b.set(metaDoc(uid, track), data.meta as Meta));
+  ops.push((b) =>
+    b.set(seedDoc(uid, track), { version: SEED_VERSION, at: serverTimestamp() }),
+  );
+
+  for (const review of data.reviews) {
+    const { id, ...rest } = review;
+    ops.push((b) => b.set(doc(reviewsCol(uid, track), id), rest));
+  }
+  for (const event of data.activity) {
+    const { id, ...rest } = event;
+    ops.push((b) => b.set(doc(activityCol(uid, track), id), rest));
+  }
+
+  await commitInChunks(ops);
 }
 
 // ---- Meta ----

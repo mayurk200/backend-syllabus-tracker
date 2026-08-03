@@ -122,6 +122,45 @@ export interface WeekEntry {
    * ticks, the record of a slip — belongs to the week and travels with it.
    */
   slottedAt?: number | null;
+  /**
+   * Raw marks scored in this week's milestone test, out of `MILESTONE_MAX`.
+   * Only meaningful on a week that carries a milestone. Null until sat.
+   */
+  milestoneScore?: number | null;
+}
+
+/** GATE is marked out of 100 raw. */
+export const MILESTONE_MAX = 100;
+
+/**
+ * The campaign targets 84–88 raw. Below that band the mock says the plan is not
+ * working yet; the point of recording scores is to see that early rather than
+ * in February.
+ */
+export const MILESTONE_TARGET = 84;
+
+export type MilestoneVerdict = 'unsat' | 'under' | 'onTarget';
+
+export function milestoneVerdict(week: WeekEntry): MilestoneVerdict {
+  const s = week.milestoneScore;
+  if (s === null || s === undefined) return 'unsat';
+  return s >= MILESTONE_TARGET ? 'onTarget' : 'under';
+}
+
+/** Milestone weeks in calendar order, for the score history. */
+export function milestoneWeeks(weeks: WeekEntry[]): WeekEntry[] {
+  return weeks
+    .filter((w) => Boolean(w.milestone))
+    .sort((a, b) => a.start.localeCompare(b.start));
+}
+
+/** Mean of the milestones actually sat, or null if none have been. */
+export function milestoneAverage(weeks: WeekEntry[]): number | null {
+  const sat = milestoneWeeks(weeks)
+    .map((w) => w.milestoneScore)
+    .filter((s): s is number => typeof s === 'number');
+  if (sat.length === 0) return null;
+  return Math.round((sat.reduce((a, b) => a + b, 0) / sat.length) * 10) / 10;
 }
 
 export const WEEK_KIND_LABEL: Record<WeekKind, string> = {
@@ -171,12 +210,64 @@ export function canSwapWeeks(a: WeekEntry, b: WeekEntry): boolean {
   return swapBlockedReason(a, b) === null;
 }
 
+/**
+ * Work that is owed: the slot has closed and the week is not finished. True
+ * both for a week that was there when its dates ran out and for one parked on
+ * dates that had already passed — either way it has no date left to be done on.
+ */
+export function weekNeedsSlot(week: WeekEntry, now: number): boolean {
+  return weekEnded(week, now) && !weekIsComplete(week);
+}
+
+export interface CatchUpSuggestion {
+  /** The week that is owed. */
+  week: WeekEntry;
+  /** The slot it could take. */
+  target: WeekEntry;
+  /** True when the target is already finished, so the swap costs nothing. */
+  free: boolean;
+}
+
+/**
+ * The oldest week still owed, and the best slot to move it to.
+ *
+ * Swapping is a trade, so giving a missed week a future date sends whatever was
+ * there back onto spent dates. A week already finished can absorb that without
+ * losing anything — it keeps its pass wherever it sits — so those are offered
+ * first, and an unfinished target only when there is no better option. That
+ * trade is not hidden: the displaced week shows up as needing a slot itself.
+ */
+export function suggestCatchUp(weeks: WeekEntry[], now: number): CatchUpSuggestion | null {
+  const owed = weeks
+    .filter((w) => weekNeedsSlot(w, now))
+    .sort((a, b) => (a.missedAt ?? weekEndMs(a)) - (b.missedAt ?? weekEndMs(b)));
+
+  for (const week of owed) {
+    const target = weeks
+      .filter(
+        (t) =>
+          t.id !== week.id &&
+          canSwapWeeks(week, t) &&
+          // Only a slot that has not started: moving the week you are in the
+          // middle of is not catching up, it is losing your place.
+          new Date(`${t.start}T00:00:00`).getTime() > now,
+      )
+      .sort((a, b) => {
+        const byCost = Number(weekIsComplete(b)) - Number(weekIsComplete(a));
+        return byCost !== 0 ? byCost : a.start.localeCompare(b.start);
+      })[0];
+    if (target) return { week, target, free: weekIsComplete(target) };
+  }
+  return null;
+}
+
 /** The fields a swap rewrites on one of the two weeks. */
 export interface WeekSlotUpdate {
   start: string;
   end: string;
   dates: string;
   milestone: string | null;
+  milestoneScore: number | null;
   slottedAt: number;
   /** Written only when the move is leaving a slip behind. */
   missedAt?: number;
@@ -202,10 +293,11 @@ export function slipOnLeaving(week: WeekEntry, now: number): number | null {
 }
 
 /**
- * What to write to each week when they trade slots. The dates move, and so does
- * the milestone — the mock tests are booked against real dates, so that one
- * belongs to the slot rather than to the plan. Everything else (the id, the
- * days, the ticks) stays with the week.
+ * What to write to each week when they trade slots. The dates move, and so do
+ * the milestone and its score — the mock tests are booked against real dates,
+ * so those belong to the slot rather than to the plan, and they have to travel
+ * together or a result would end up filed under a different test. Everything
+ * else (the id, the days, the ticks) stays with the week.
  *
  * Pure, so the Firestore write and the tests run the same rules.
  */
@@ -221,6 +313,7 @@ export function swapUpdates(
       end: to.end,
       dates: to.dates,
       milestone: to.milestone ?? null,
+      milestoneScore: to.milestoneScore ?? null,
       slottedAt: now,
       ...(slip === null ? {} : { missedAt: slip }),
     };
@@ -391,6 +484,12 @@ export interface BacklogItem {
    * the week simply reads late again.
    */
   rescheduled: boolean;
+  /**
+   * Displaced onto dates that had already passed, so it was never given its
+   * slot and now has no date at all. Not late — unscheduled. Without this it
+   * would read as "pending" forever and quietly leave the plan.
+   */
+  stranded: boolean;
 }
 
 /** Local Monday 00:00 of the week containing `ts`. */

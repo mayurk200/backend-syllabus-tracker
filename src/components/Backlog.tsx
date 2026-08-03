@@ -15,8 +15,18 @@ interface BacklogProps {
 const ACCENT = '#5980a6';
 const RED = '#a03c3c';
 const AMBER = '#9a7b3f';
+/** Displaced work: owed like a miss, but no deadline was ever broken. */
+const PLUM = '#7a5f8a';
 
-type Filter = 'all' | 'open' | 'rescheduled' | 'late';
+type Filter = 'all' | 'open' | 'stranded' | 'rescheduled' | 'late';
+
+/** The one state a row is in, which decides its colour and its label. */
+function rowState(item: BacklogItem): { label: string; colour: string } {
+  if (item.completedLate) return { label: 'caught up', colour: ACCENT };
+  if (item.rescheduled) return { label: 'rescheduled', colour: AMBER };
+  if (item.stranded) return { label: 'needs a slot', colour: PLUM };
+  return { label: '', colour: RED };
+}
 
 function fmtDate(ms: number | null): string {
   if (ms === null) return '—';
@@ -52,22 +62,30 @@ export function Backlog({
   // the last of it would otherwise strand you on a filter with no button to
   // leave by.
   const hasRescheduled = all.some((i) => i.rescheduled);
-  const filter: Filter = chosen === 'rescheduled' && !hasRescheduled ? 'open' : chosen;
+  const hasStranded = all.some((i) => i.stranded);
+  const gone = (f: Filter): boolean =>
+    (f === 'rescheduled' && !hasRescheduled) || (f === 'stranded' && !hasStranded);
+  const filter: Filter = gone(chosen) ? 'open' : chosen;
 
   const items = all.filter((i) => {
-    if (filter === 'open') return !i.completedLate && !i.rescheduled;
+    if (filter === 'open') return !i.completedLate && !i.rescheduled && !i.stranded;
+    if (filter === 'stranded') return i.stranded;
     if (filter === 'rescheduled') return i.rescheduled;
     if (filter === 'late') return i.completedLate;
     return true;
   });
 
-  const weeksMissed = all.filter((i) => i.kind === 'week' && !i.rescheduled).length;
+  const isPlainWeek = (i: BacklogItem): boolean =>
+    i.kind === 'week' && !i.rescheduled && !i.stranded;
+  const weeksMissed = all.filter(isPlainWeek).length;
   const weeksMoved = all.filter((i) => i.kind === 'week' && i.rescheduled).length;
+  const weeksStranded = all.filter((i) => i.kind === 'week' && i.stranded).length;
   const caughtUp = all.filter((i) => i.completedLate).length;
   const hours = backlogHours(all);
 
   const filters: Array<{ id: Filter; label: string }> = [
     { id: 'open', label: 'Still open' },
+    ...(hasStranded ? [{ id: 'stranded' as Filter, label: 'Needs a slot' }] : []),
     ...(hasRescheduled ? [{ id: 'rescheduled' as Filter, label: 'Rescheduled' }] : []),
     { id: 'late', label: 'Caught up late' },
     { id: 'all', label: 'Everything' },
@@ -78,6 +96,9 @@ export function Backlog({
     ...(track.id === 'gate'
       ? [
           { label: 'Weeks missed', value: String(weeksMissed) },
+          ...(hasStranded
+            ? [{ label: 'Needs a slot', value: String(weeksStranded), colour: PLUM }]
+            : []),
           { label: 'Rescheduled', value: String(weeksMoved), colour: AMBER },
         ]
       : [{ label: 'Items', value: String(all.length) }]),
@@ -170,6 +191,7 @@ export function Backlog({
             )}
             {items.map((item) => {
               const isWeek = item.kind === 'week';
+              const state = rowState(item);
               return (
                 <button
                   key={item.id}
@@ -179,14 +201,7 @@ export function Backlog({
                 >
                   <span
                     className="mt-1 h-2 w-2 flex-none"
-                    style={{
-                      background: item.completedLate
-                        ? ACCENT
-                        : item.rescheduled
-                          ? AMBER
-                          : RED,
-                      opacity: isWeek ? 1 : 0.45,
-                    }}
+                    style={{ background: state.colour, opacity: isWeek ? 1 : 0.45 }}
                   />
                   <span className="min-w-0 flex-1">
                     <span
@@ -210,26 +225,15 @@ export function Backlog({
                     </span>
                   </span>
                   <span className="flex-none text-right">
-                    <span
-                      className="k block"
-                      style={{
-                        color: item.completedLate
-                          ? ACCENT
-                          : item.rescheduled
-                            ? AMBER
-                            : RED,
-                      }}
-                    >
-                      {item.completedLate
-                        ? 'caught up'
-                        : item.rescheduled
-                          ? 'rescheduled'
-                          : daysAgo(item.missedAt, now)}
+                    <span className="k block" style={{ color: state.colour }}>
+                      {state.label || daysAgo(item.missedAt, now)}
                     </span>
                     <span className="k mt-1 block">
                       {item.hours ? `${item.hours}h` : ''}{' '}
-                      {item.missedAt !== null &&
-                        `${item.rescheduled ? 'was due ' : ''}${fmtDate(item.missedAt)}`}
+                      {item.stranded
+                        ? 'no date'
+                        : item.missedAt !== null &&
+                          `${item.rescheduled ? 'was due ' : ''}${fmtDate(item.missedAt)}`}
                     </span>
                   </span>
                 </button>

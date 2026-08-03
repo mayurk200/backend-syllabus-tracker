@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import type { Meta, Phase, TrackDef, WeeklyReview } from '../types';
 import { hoursLogged, isPhaseComplete } from '../types';
 import { Corners } from './Corners';
@@ -11,9 +12,12 @@ interface ProfileProps {
   onOpenReview: () => void;
   onOpenReviews: () => void;
   onExport: () => void;
+  /** Restore from a file this app exported. Returns what it did, for the note. */
+  onImport: (file: File) => Promise<string>;
 }
 
 const ACCENT = '#5980a6';
+const RED = '#a03c3c';
 
 function weeksSince(startDate: string | undefined): number {
   if (!startDate) return 0;
@@ -34,7 +38,27 @@ export function Profile({
   onOpenReview,
   onOpenReviews,
   onExport,
+  onImport,
 }: ProfileProps): JSX.Element {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  const handleFile = async (file: File | undefined): Promise<void> => {
+    if (!file) return;
+    setImporting(true);
+    setNote(null);
+    try {
+      setNote({ text: await onImport(file), bad: false });
+    } catch (e) {
+      setNote({ text: e instanceof Error ? e.message : 'That import failed.', bad: true });
+    } finally {
+      setImporting(false);
+      // Let the same file be chosen again after a failure.
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
   const gatesPassed = phases.filter(isPhaseComplete).length;
   const totalHours = phases.reduce((sum, p) => sum + hoursLogged(p), 0);
   const week = weeksSince(meta?.startDate);
@@ -45,6 +69,11 @@ export function Profile({
     { label: 'Track', value: track.name },
     { label: 'Data', value: `Firestore · users/me/tracks/${track.id}` },
     { label: 'Export', value: 'JSON', onClick: onExport },
+    {
+      label: 'Restore',
+      value: importing ? 'reading…' : 'from a file',
+      onClick: () => fileRef.current?.click(),
+    },
   ];
 
   return (
@@ -57,6 +86,27 @@ export function Profile({
 
       <div className="blueprint p-4">
       <Corners />
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(e) => void handleFile(e.target.files?.[0])}
+      />
+      {note && (
+        <div
+          className="k mb-3"
+          style={{
+            letterSpacing: '.04em',
+            lineHeight: 1.5,
+            textTransform: 'none',
+            color: note.bad ? RED : ACCENT,
+          }}
+        >
+          {note.text}
+        </div>
+      )}
 
       {/* stats */}
       <div

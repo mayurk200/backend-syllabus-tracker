@@ -37,7 +37,11 @@ function gateBacklog(weeks: WeekEntry[], now: number): BacklogItem[] {
     // dates that had already passed never had the chance to run, so it is only
     // behind if it was already carrying a slip before the move.
     const missed = weekWasLive(w) && (Boolean(w.missedAt) || (ended && !complete));
-    if (!missed) continue;
+    // Parked on dates that had already run out — displaced by a swap rather
+    // than skipped. It owes the same work as a missed week but no deadline was
+    // ever broken, so it is listed as needing a slot rather than as late.
+    const stranded = !weekWasLive(w) && ended && !complete;
+    if (!missed && !stranded) continue;
 
     // Carrying a slip but sitting on a slot that has not closed yet: the only
     // way to reach that is to move the week forward, which is the point — a
@@ -62,12 +66,15 @@ function gateBacklog(weeks: WeekEntry[], now: number): BacklogItem[] {
         ? ended
           ? `${w.dates} — finished after the week closed.`
           : `moved to ${w.dates} — caught up before the new slot closed.`
-        : `${rescheduled ? 'rescheduled → ' : ''}${w.dates} — ${outstanding.length} of ${studyDayIndexes(w).length} study days still open.`,
+        : stranded
+          ? `displaced onto ${w.dates}, which had already passed — it needs a slot.`
+          : `${rescheduled ? 'rescheduled → ' : ''}${w.dates} — ${outstanding.length} of ${studyDayIndexes(w).length} study days still open.`,
       hours: outstanding.reduce((s, { i }) => s + (hours[i] ?? 0), 0),
       weekId: w.id,
       missedAt,
       completedLate: complete,
       rescheduled,
+      stranded,
     });
 
     for (const { d, i } of outstanding) {
@@ -81,6 +88,7 @@ function gateBacklog(weeks: WeekEntry[], now: number): BacklogItem[] {
         missedAt,
         completedLate: false,
         rescheduled,
+        stranded,
       });
     }
   }
@@ -126,6 +134,7 @@ function positionalBacklog(phases: Phase[]): BacklogItem[] {
           missedAt: null,
           completedLate: false,
           rescheduled: false,
+          stranded: false,
         });
       });
     });

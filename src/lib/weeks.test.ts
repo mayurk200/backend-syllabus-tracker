@@ -4,13 +4,19 @@ import { linkForDay, linkedWeekIds } from '../data/gateLinks';
 import { backlogHours, buildBacklog } from './backlog';
 import type { WeekEntry, WeekKind } from '../types';
 import {
+  MILESTONE_TARGET,
   canSwapWeeks,
+  milestoneAverage,
+  milestoneVerdict,
+  milestoneWeeks,
   slipOnLeaving,
   studyDayIndexes,
+  suggestCatchUp,
   swapBlockedReason,
   swapUpdates,
   weekEndMs,
   weekIsPinned,
+  weekNeedsSlot,
   weekOutcome,
   weekWasLive,
 } from '../types';
@@ -53,6 +59,20 @@ describe('the campaign calendar', () => {
     const firstIndex = order.map((k) => seen.indexOf(k));
     expect(firstIndex).toEqual([...firstIndex].sort((a, b) => a - b));
     expect(new Set(seen)).toEqual(new Set(order));
+  });
+
+  it('keeps each block in one contiguous run', () => {
+    // The timeline's ↑/↓ controls move a week one place and rely on this: if a
+    // kind appeared in two separate runs, a single press could walk a week out
+    // of its own block.
+    const seen = new Set<WeekKind>();
+    let prev: WeekKind | null = null;
+    for (const w of weeks().sort((a, b) => a.start.localeCompare(b.start))) {
+      if (w.kind === prev) continue;
+      expect(seen.has(w.kind), `${w.kind} appears in two runs`).toBe(false);
+      seen.add(w.kind);
+      prev = w.kind;
+    }
   });
 
   it('has exactly one setup week and one taper week', () => {
@@ -128,6 +148,40 @@ describe('milestones', () => {
     expect(a2.milestone ?? null).toBe(b.milestone ?? null);
     expect(b2.dates).toBe(a.dates);
     expect(b2.milestone).toBe(a.milestone);
+  });
+
+  it('carries a score with its milestone, never onto a different test', () => {
+    // M1 was sat on M1's dates. If the score travelled with the week while the
+    // milestone stayed put, that result would end up filed under M2.
+    const a = { ...byId('W8'), milestoneScore: 72 };
+    const b = byId('W9');
+    const [a2, b2] = swap(a, b);
+    expect(a2.milestone ?? null).toBeNull();
+    expect(a2.milestoneScore).toBeNull();
+    expect(b2.milestone).toBe(a.milestone);
+    expect(b2.milestoneScore).toBe(72);
+  });
+
+  it('scores against the target band', () => {
+    expect(milestoneVerdict({ ...byId('W8'), milestoneScore: undefined })).toBe('unsat');
+    expect(milestoneVerdict({ ...byId('W8'), milestoneScore: null })).toBe('unsat');
+    expect(milestoneVerdict({ ...byId('W8'), milestoneScore: 0 })).toBe('under');
+    expect(milestoneVerdict({ ...byId('W8'), milestoneScore: MILESTONE_TARGET - 1 })).toBe('under');
+    expect(milestoneVerdict({ ...byId('W8'), milestoneScore: MILESTONE_TARGET })).toBe('onTarget');
+  });
+
+  it('averages only the tests actually sat', () => {
+    const ws = weeks().map((w) =>
+      w.milestone === 'M1' ? { ...w, milestoneScore: 70 } :
+      w.milestone === 'M2' ? { ...w, milestoneScore: 80 } : w,
+    );
+    expect(milestoneAverage(ws)).toBe(75);
+    expect(milestoneAverage(weeks())).toBeNull();
+  });
+
+  it('lists milestone weeks in calendar order', () => {
+    const ms = milestoneWeeks(weeks());
+    expect(ms.map((w) => w.milestone)).toEqual(ms.map((_, i) => `M${i}`));
   });
 
   it('cannot strand a milestone: every slot keeps whatever it had', () => {
@@ -330,9 +384,19 @@ describe('the backlog', () => {
     expect(buildBacklog('gate', [], [noneDone(byId('W20'))], MID)).toEqual([]);
   });
 
-  it('does not invent a backlog from a week swapped onto spent dates', () => {
-    const [moved] = swap(noneDone(byId('W20')), byId('W1'));
-    expect(buildBacklog('gate', [], [moved], MID)).toEqual([]);
+  it('tells displaced work apart from a genuine miss in the same list', () => {
+    // Both owe the work. Only one of them broke a deadline, and the list has to
+    // say which — while listing both, since dropping either takes work off the
+    // plan altogether.
+    const missed = { ...noneDone(byId('W1')), missedAt: 1000 };
+    const [parked] = swap(noneDone(byId('W10')), byId('W2'));
+    const rows = buildBacklog('gate', [], [missed, parked], MID).filter(
+      (i) => i.kind === 'week',
+    );
+    const byWeek = new Map(rows.map((i) => [i.weekId, i]));
+    expect([...byWeek.keys()].sort()).toEqual(['W1', 'W10']);
+    expect(byWeek.get('W1')?.stranded).toBe(false);
+    expect(byWeek.get('W10')?.stranded).toBe(true);
   });
 
   it('marks a slipped week rescheduled once it has a slot still to come', () => {
@@ -415,6 +479,72 @@ describe('the backlog', () => {
     ];
     const items = buildBacklog('gate', phases, [], MID);
     expect(items.filter((i) => i.kind === 'subtopic')).toEqual([]);
+  });
+});
+
+describe('displaced work and catching up', () => {
+  it('lists a week parked on spent dates as needing a slot, not as late', () => {
+    const [parked] = swap(noneDone(byId('W10')), byId('W1'));
+    const items = buildBacklog('gate', [], [parked], MID);
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((i) => i.stranded)).toBe(true);
+    expect(items.every((i) => !i.rescheduled && !i.completedLate)).toBe(true);
+    expect(items[0].detail).toMatch(/needs a slot/);
+  });
+
+  it('still counts displaced work in the hours owed', () => {
+    const [parked] = swap(noneDone(byId('W10')), byId('W1'));
+    expect(backlogHours(buildBacklog('gate', [], [parked], MID))).toBeGreaterThan(0);
+  });
+
+  it('offers the oldest owed week a slot that has not started', () => {
+    const owed = { ...noneDone(byId('W1')), missedAt: 1000 };
+    const s = suggestCatchUp([owed, byId('W10'), byId('W11')], MID);
+    expect(s?.week.id).toBe('W1');
+    expect(new Date(`${s!.target.start}T00:00:00`).getTime()).toBeGreaterThan(MID);
+  });
+
+  it('prefers a finished target, since that swap costs nothing', () => {
+    const owed = { ...noneDone(byId('W1')), missedAt: 1000 };
+    // W11 is later than W10 but already done, so it is the better trade.
+    const s = suggestCatchUp([owed, noneDone(byId('W10')), allDone(byId('W11'))], MID);
+    expect(s?.target.id).toBe('W11');
+    expect(s?.free).toBe(true);
+  });
+
+  it('falls back to an unfinished target and says the cost out loud', () => {
+    const owed = { ...noneDone(byId('W1')), missedAt: 1000 };
+    const s = suggestCatchUp([owed, noneDone(byId('W10'))], MID);
+    expect(s?.target.id).toBe('W10');
+    expect(s?.free).toBe(false);
+  });
+
+  it('never offers a slot outside the owed week block', () => {
+    const owed = { ...noneDone(byId('W1')), missedAt: 1000 };
+    const s = suggestCatchUp([owed, ...weeks().filter((w) => w.kind !== 'core')], MID);
+    expect(s).toBeNull();
+  });
+
+  it('offers nothing when there is nothing owed', () => {
+    expect(suggestCatchUp(weeks().map(allDone), MID)).toBeNull();
+    expect(suggestCatchUp(weeks(), BEFORE)).toBeNull();
+  });
+
+  it('offers a slot to displaced work as readily as to a miss', () => {
+    const [parked] = swap(noneDone(byId('W10')), byId('W1'));
+    const s = suggestCatchUp([parked, byId('W14')], MID);
+    expect(s?.week.id).toBe('W10');
+    expect(s?.target.id).toBe('W14');
+  });
+
+  it('clears the owed week once the suggested swap is taken', () => {
+    const owed = { ...noneDone(byId('W1')), missedAt: 1000 };
+    const s = suggestCatchUp([owed, allDone(byId('W11'))], MID)!;
+    const [moved, displaced] = swap(s.week, s.target);
+    expect(weekNeedsSlot(moved, MID)).toBe(false);
+    // The finished partner absorbed the spent dates without owing anything.
+    expect(weekNeedsSlot(displaced, MID)).toBe(false);
+    expect(weekOutcome(displaced, MID)).toBe('pass');
   });
 });
 

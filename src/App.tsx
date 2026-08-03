@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useTrackerData } from './hooks/useTrackerData';
 import {
   addReview,
+  importTracker,
   setReviewPreviousDone,
   setSubtopicDone,
   setTopicDone,
   resetWeekSlots,
+  setMilestoneScore,
   setWeekDayDone,
   subscribeReviews,
   swapWeekSlots,
@@ -31,6 +33,7 @@ import { Splash } from './components/Splash';
 import { Toast, useToast } from './components/Toast';
 import { TopNav, type Tab } from './components/TopNav';
 import { buildBacklog } from './lib/backlog';
+import { buildExport, describeImport, exportFilename, parseImport } from './lib/transfer';
 
 // No login. Single-user app: all data lives under one fixed id in Firestore.
 // This must match the id allowed in firestore.rules.
@@ -153,8 +156,16 @@ export default function App(): JSX.Element {
   };
 
   const handleResetWeeks = async (): Promise<void> => {
-    await resetWeekSlots(uid);
+    await resetWeekSlots(uid, weeks);
     raise('Timeline reset · every week back in its original slot');
+  };
+
+  const handleMilestoneScore = async (
+    week: WeekEntry,
+    score: number | null,
+  ): Promise<void> => {
+    await setMilestoneScore(uid, week, score);
+    if (score !== null) raise(`${week.milestone ?? week.id} · ${score}/100 recorded`);
   };
 
   const handleSubmitReview = async (review: NewWeeklyReview): Promise<void> => {
@@ -169,27 +180,36 @@ export default function App(): JSX.Element {
   };
 
   const handleExport = (): void => {
-    const payload = {
-      exportedAt: new Date().toISOString(),
+    const payload = buildExport({
       track: trackId,
       meta,
       phases,
-      weeks:
-        trackId === 'gate'
-          ? weeks.map((w) => ({ ...w, status: weekStatus[w.id] ?? null }))
-          : undefined,
+      weeks,
+      weekStatus,
       reviews,
       activity,
-    };
+    });
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${trackId}-tracker-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = exportFilename(trackId);
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  /**
+   * Restore from an exported file. The live subscriptions redraw the app as the
+   * writes land, so there is nothing to reload afterwards.
+   */
+  const handleImport = async (file: File): Promise<string> => {
+    const parsed = parseImport(await file.text(), trackId);
+    if (!parsed.ok) throw new Error(parsed.error);
+    await importTracker(uid, parsed.data);
+    setSelectedPhaseId(null);
+    return `Restored — ${describeImport(parsed.data)}`;
   };
 
   const goTab = (next: Tab): void => {
@@ -238,6 +258,7 @@ export default function App(): JSX.Element {
             onSetDayDone={handleWeekDay}
             onSwapWeeks={handleSwapWeeks}
             onResetWeeks={handleResetWeeks}
+            onSetMilestoneScore={handleMilestoneScore}
           />
         );
       case 'progress':
@@ -288,6 +309,7 @@ export default function App(): JSX.Element {
             onOpenReview={() => goTab('review')}
             onOpenReviews={() => goTab('reviews')}
             onExport={handleExport}
+            onImport={handleImport}
           />
         );
       default:

@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { WeekEntry, WeekOutcome } from '../types';
 import {
+  MILESTONE_MAX,
+  MILESTONE_TARGET,
   WEEK_KIND_LABEL,
   WEEK_OUTCOME_LABEL,
   canSwapWeeks,
   dayBody,
   dayLabel,
+  milestoneAverage,
+  milestoneVerdict,
+  milestoneWeeks,
   missedStudyDays,
   studyDayIndexes,
+  suggestCatchUp,
   weekDayHours,
   weekHoursDone,
   weekIsPinned,
@@ -23,6 +29,8 @@ interface TimelineProps {
   onSwapWeeks: (a: WeekEntry, b: WeekEntry) => Promise<void>;
   /** Undo every swap, putting each week back in its authored slot. */
   onResetWeeks: () => Promise<void>;
+  /** Record what a milestone test scored, or null to clear it. */
+  onSetMilestoneScore: (week: WeekEntry, score: number | null) => Promise<void>;
 }
 
 const AMBER = '#9a7b3f';
@@ -71,6 +79,7 @@ export function Timeline({
   onSetDayDone,
   onSwapWeeks,
   onResetWeeks,
+  onSetMilestoneScore,
 }: TimelineProps): JSX.Element {
   const now = useNow();
   const [open, setOpen] = useState<string | null>(null);
@@ -159,6 +168,35 @@ export function Timeline({
       setBusy(null);
     }
   };
+
+  /**
+   * The week one place earlier or later that `weeks[i]` may trade with, if
+   * there is one. Blocks sit in contiguous runs, so this is simply the
+   * neighbour — and nothing at the edge of a block, which is what stops a core
+   * week walking into the revision run one press at a time.
+   */
+  const moveTarget = (i: number, step: -1 | 1): WeekEntry | undefined => {
+    const other = weeks[i + step];
+    return other && canSwapWeeks(weeks[i], other) ? other : undefined;
+  };
+
+  /** Blank clears the score; anything unparseable is ignored, not stored. */
+  const handleScore = async (w: WeekEntry, raw: string): Promise<void> => {
+    const trimmed = raw.trim();
+    const score = trimmed === '' ? null : Number(trimmed);
+    if (score !== null && !Number.isFinite(score)) return;
+    setBusy(`score:${w.id}`);
+    try {
+      await onSetMilestoneScore(w, score);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const catchUp = suggestCatchUp(weeks, now);
+  const milestones = milestoneWeeks(weeks);
+  const average = milestoneAverage(weeks);
+  const sat = milestones.filter((w) => typeof w.milestoneScore === 'number').length;
 
   const milestoneWeek = weeks.find((w, i) => Boolean(w.milestone) && i > currentIndex);
 
@@ -487,14 +525,90 @@ export function Timeline({
         </div>
       </div>
 
+      {/* ── what the mocks actually say ───────────────────────────────── */}
+      <div className="min-w-0">
+        <div className="k mb-2 flex justify-between gap-3">
+          <span>Mock tests · target {MILESTONE_TARGET}+ raw</span>
+          <span style={{ color: average === null ? undefined : average >= MILESTONE_TARGET ? ACCENT : RED }}>
+            {average === null
+              ? 'none sat yet'
+              : `${sat} of ${milestones.length} sat · average ${average}`}
+          </span>
+        </div>
+        <div className="flex gap-[2px]">
+          {milestones.map((w) => {
+            const verdict = milestoneVerdict(w);
+            const score = w.milestoneScore;
+            return (
+              <button
+                key={w.id}
+                onClick={() => setOpen(open === w.id ? null : w.id)}
+                className="flex flex-1 flex-col items-center gap-1"
+                title={`${w.milestone} · ${w.id} · ${w.dates}${
+                  typeof score === 'number' ? ` · ${score}/${MILESTONE_MAX}` : ' · not sat'
+                }`}
+              >
+                {/* Height reads as the score; an unsat test is a flat stub. */}
+                <span className="flex h-9 w-full items-end">
+                  <span
+                    className="bx w-full"
+                    style={{
+                      height:
+                        typeof score === 'number'
+                          ? `${Math.max(8, (score / MILESTONE_MAX) * 100)}%`
+                          : 3,
+                      background:
+                        verdict === 'onTarget'
+                          ? ACCENT
+                          : verdict === 'under'
+                            ? RED
+                            : 'rgba(29,31,32,.13)',
+                    }}
+                  />
+                </span>
+                <span className="k" style={{ fontSize: 9 }}>
+                  {w.milestone}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── the next move worth making ────────────────────────────────── */}
+      {catchUp && (
+        <div className="bx flex flex-wrap items-center justify-between gap-3 p-3.5">
+          <div className="min-w-0">
+            <div className="k" style={{ color: catchUp.free ? ACCENT : AMBER }}>
+              {catchUp.week.missedAt ? 'Catch up' : 'Needs a slot'} · {catchUp.week.id}
+            </div>
+            <p style={{ font: '400 13px/1.5 var(--font-body)', marginTop: 4 }}>
+              {catchUp.week.title} has no date left to be done on. Move it to{' '}
+              {catchUp.target.dates}
+              {catchUp.free
+                ? `, where ${catchUp.target.id} is already finished and loses nothing.`
+                : ` and ${catchUp.target.id} takes its spent dates — that week will then need a slot of its own.`}
+            </p>
+          </div>
+          <button
+            onClick={() => void handleDrop(catchUp.week.id, catchUp.target.id)}
+            disabled={busy === `swap:${catchUp.week.id}`}
+            className="btn-line flex-none"
+            style={{ height: 32, paddingLeft: 14, paddingRight: 14, borderColor: ACCENT, color: ACCENT }}
+          >
+            {busy === `swap:${catchUp.week.id}`
+              ? 'moving…'
+              : `Swap with ${catchUp.target.id}`}
+          </button>
+        </div>
+      )}
+
       {/* ── the whole plan, still one tap from here ───────────────────── */}
       <div className="blueprint p-4">
         <Corners />
         <div className="mb-3 flex items-baseline justify-between">
           <span className="h">{weeks.length}-WEEK PLAN</span>
-          <span className="k">
-            tap for the day-by-day · drag on the strip to swap dates
-          </span>
+          <span className="k">tap for the day-by-day · ↑↓ to move a week</span>
         </div>
 
         {weeks.map((w, i) => {
@@ -506,9 +620,10 @@ export function Timeline({
           const hours = weekDayHours(w);
           return (
             <div key={w.id} style={{ borderTop: '1px solid rgba(29,31,32,.18)' }}>
+              <div className="flex items-start">
               <button
                 onClick={() => setOpen(expanded ? null : w.id)}
-                className="flex w-full items-start gap-3 py-2.5 text-left"
+                className="flex min-w-0 flex-1 items-start gap-3 py-2.5 text-left"
               >
                 <div
                   className="bx grid h-[26px] w-[34px] flex-none place-items-center"
@@ -561,6 +676,39 @@ export function Timeline({
                 </div>
               </button>
 
+              {/* The strip is drag-only, which no touchscreen can do. These
+                  move a week one place within its own block instead. */}
+              {!weekIsPinned(w) && (
+                <span className="flex flex-none items-center gap-1 py-2.5 pl-2">
+                  {([-1, 1] as const).map((step) => {
+                    const target = moveTarget(i, step);
+                    return (
+                      <button
+                        key={step}
+                        onClick={() => target && void handleDrop(w.id, target.id)}
+                        disabled={!target || busy === `swap:${w.id}`}
+                        className="grid h-7 w-7 flex-none place-items-center"
+                        style={{
+                          border: '1px solid rgba(29,31,32,.22)',
+                          font: '400 12px var(--font-body)',
+                          color: target ? ACCENT : MUTED,
+                          opacity: target ? 1 : 0.3,
+                        }}
+                        title={
+                          target
+                            ? `Swap ${w.id} with ${target.id} · ${target.dates}`
+                            : `${w.id} is ${step === -1 ? 'first' : 'last'} in the ${KIND_LABEL[w.kind]} block`
+                        }
+                        aria-label={`Move ${w.id} one week ${step === -1 ? 'earlier' : 'later'}`}
+                      >
+                        {step === -1 ? '↑' : '↓'}
+                      </button>
+                    );
+                  })}
+                </span>
+              )}
+              </div>
+
               {expanded && (
                 <div className="pb-3.5 pl-[46px] pr-1">
                   <div className="mb-2.5">
@@ -601,6 +749,59 @@ export function Timeline({
                     <div className="k mb-1">Gate</div>
                     <div style={{ font: '400 11.5px/1.45 var(--font-body)' }}>{w.gate}</div>
                   </div>
+
+                  {/* What the mock actually scored — the only honest read on
+                      whether the plan is working, and worth seeing early. */}
+                  {w.milestone && (
+                    <div className="bx mb-2.5 flex flex-wrap items-center gap-2 p-2.5">
+                      <span className="k flex-none">★ {w.milestone} score</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={MILESTONE_MAX}
+                        inputMode="numeric"
+                        defaultValue={w.milestoneScore ?? ''}
+                        placeholder="—"
+                        key={`${w.id}:${w.milestoneScore ?? ''}`}
+                        onBlur={(e) => void handleScore(w, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur();
+                        }}
+                        disabled={busy === `score:${w.id}`}
+                        aria-label={`${w.milestone} raw marks out of ${MILESTONE_MAX}`}
+                        className="w-16 px-1.5 py-1 text-center"
+                        style={{
+                          border: '1px solid rgba(29,31,32,.28)',
+                          background: 'transparent',
+                          font: '500 13px var(--font-body)',
+                          color:
+                            milestoneVerdict(w) === 'under'
+                              ? RED
+                              : milestoneVerdict(w) === 'onTarget'
+                                ? ACCENT
+                                : undefined,
+                        }}
+                      />
+                      <span className="k flex-none">/ {MILESTONE_MAX} raw</span>
+                      <span
+                        className="k min-w-0 flex-1 text-right"
+                        style={{
+                          color:
+                            milestoneVerdict(w) === 'under'
+                              ? RED
+                              : milestoneVerdict(w) === 'onTarget'
+                                ? ACCENT
+                                : MUTED,
+                        }}
+                      >
+                        {milestoneVerdict(w) === 'unsat'
+                          ? `target ${MILESTONE_TARGET}+`
+                          : milestoneVerdict(w) === 'onTarget'
+                            ? `on target · ${MILESTONE_TARGET}+`
+                            : `${MILESTONE_TARGET - (w.milestoneScore ?? 0)} short of ${MILESTONE_TARGET}`}
+                      </span>
+                    </div>
+                  )}
                   <div
                     className="k"
                     style={{
