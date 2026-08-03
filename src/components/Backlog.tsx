@@ -21,7 +21,7 @@ const PLUM = '#7a5f8a';
 type Filter = 'all' | 'open' | 'stranded' | 'rescheduled' | 'late';
 
 /** The one state a row is in, which decides its colour and its label. */
-function rowState(item: BacklogItem): { label: string; colour: string } {
+export function rowState(item: BacklogItem): { label: string; colour: string } {
   if (item.completedLate) return { label: 'caught up', colour: ACCENT };
   if (item.rescheduled) return { label: 'rescheduled', colour: AMBER };
   if (item.stranded) return { label: 'needs a slot', colour: PLUM };
@@ -182,10 +182,16 @@ export function Backlog({
           <div style={{ borderTop: '1px solid rgba(29,31,32,.35)' }}>
             {items.length === 0 && (
               <div className="k py-4" style={{ letterSpacing: '.04em' }}>
-                {/* Everything behind can be rescheduled at once, which empties
-                    the default filter while the page still has rows in it. */}
-                {filter === 'open' && weeksMoved > 0
-                  ? `Nothing still open — ${weeksMoved} ${weeksMoved === 1 ? 'week is' : 'weeks are'} rescheduled.`
+                {/* Everything behind can be rescheduled or displaced at once,
+                    which empties the default filter while the page still has
+                    rows in it — so say where they went. */}
+                {filter === 'open' && (weeksMoved > 0 || weeksStranded > 0)
+                  ? `Nothing still open — ${[
+                      weeksMoved > 0 ? `${weeksMoved} rescheduled` : '',
+                      weeksStranded > 0 ? `${weeksStranded} needing a slot` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}.`
                   : 'Nothing in this filter.'}
               </div>
             )}
