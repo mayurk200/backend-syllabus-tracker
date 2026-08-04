@@ -8,6 +8,9 @@ export type Tab =
   | 'syllabus'
   | 'timeline'
   | 'backlog'
+  // Flagged subtopics. Distinct from 'reviews' (the weekly review log) and
+  // 'review' (writing one) — same word, unrelated features.
+  | 'marked'
   | 'reviews'
   | 'review'
   | 'profile';
@@ -17,6 +20,7 @@ interface TopNavProps {
   track: TrackDef;
   inDetail: boolean;
   backlogCount: number;
+  markedCount: number;
   onSelect: (tab: Tab) => void;
   onSelectTrack: (track: TrackId) => void;
 }
@@ -29,6 +33,7 @@ const PAGES: Array<{ id: Tab; name: string; gateOnly?: boolean }> = [
   { id: 'syllabus', name: 'Syllabus' },
   { id: 'timeline', name: 'Timeline', gateOnly: true },
   { id: 'backlog', name: 'Backlog' },
+  { id: 'marked', name: 'Marked' },
   { id: 'reviews', name: 'Reviews' },
   { id: 'profile', name: 'Profile' },
 ];
@@ -64,6 +69,7 @@ export function TopNav({
   track,
   inDetail,
   backlogCount,
+  markedCount,
   onSelect,
   onSelectTrack,
 }: TopNavProps): JSX.Element {
@@ -108,6 +114,11 @@ export function TopNav({
                   {backlogCount}
                 </span>
               )}
+              {p.id === 'marked' && markedCount > 0 && (
+                <span className="k ml-1.5" style={{ color: '#9a7b3f' }}>
+                  {markedCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -122,15 +133,30 @@ export function TopNav({
                   key={t.id}
                   onClick={() => onSelectTrack(t.id)}
                   className="px-2.5 py-1.5"
+                  title={t.optional ? `${t.name} — optional track` : t.name}
                   style={{
                     background: active ? 'var(--accent)' : 'transparent',
-                    color: active ? '#fff' : 'rgba(29,31,32,.6)',
+                    // An optional track is reachable but not equal: when it is
+                    // not the one you are on it sits back a step, so the
+                    // switcher shows which plan is actually being run.
+                    color: active
+                      ? '#fff'
+                      : t.optional
+                        ? 'rgba(29,31,32,.4)'
+                        : 'rgba(29,31,32,.6)',
                     font: '600 10px var(--font-heading)',
                     letterSpacing: '.1em',
                     textTransform: 'uppercase',
                   }}
                 >
                   {t.shortName}
+                  {t.optional && (
+                    <span
+                      style={{ marginLeft: 4, opacity: active ? 0.75 : 0.6, fontWeight: 400 }}
+                    >
+                      opt
+                    </span>
+                  )}
                 </button>
               );
             })}

@@ -16,6 +16,12 @@ import {
   type WriteBatch,
 } from 'firebase/firestore';
 import type { TrackerExport } from './transfer';
+import {
+  carryReport,
+  carryTicksForward,
+  markedSubtopicNames,
+  tickedSubtopicNames,
+} from './roadmap';
 import { db } from './firebase';
 import { SEED_PHASES, verifySeedHours } from '../data/seedData';
 import { GATE_SUBJECTS, verifyGateHours } from '../data/gateData';
@@ -61,7 +67,12 @@ import {
  *   users/{uid}/tracks/{trackId}/meta/seed          seed version marker
  */
 
-const SEED_VERSION = 2;
+/**
+ * Bump this whenever the content of a seed file changes shape. v3 rewrote the
+ * backend track from Python/FastAPI to Java/Spring and grew it from 12 phases
+ * to 16, which `reconcileBackendRoadmap` applies without losing ticks.
+ */
+const SEED_VERSION = 3;
 
 // ---- Path helpers ----
 const trackDoc = (uid: string, track: TrackId) => doc(db, 'users', uid, 'tracks', track);
@@ -175,6 +186,68 @@ export async function seedIfEmpty(uid: string): Promise<void> {
   await seedTrackIfEmpty(uid, 'gate');
   await seedTrackIfEmpty(uid, 'backend');
   await migrateLegacyBackend(uid);
+  await reconcileBackendRoadmap(uid);
+}
+
+/**
+ * Bring an already-seeded backend track onto the current roadmap.
+ *
+ * The plan is rewritten from time to time — v3 replaced the Python/FastAPI
+ * syllabus with the Java/Spring one and went from 12 phases to 16 — and a
+ * rewrite must not cost the user their progress. Every subtopic they had
+ * ticked is carried onto the new plan by name (see lib/roadmap.ts for why the
+ * name and not the position), and everything derived from those ticks is
+ * recomputed rather than copied.
+ *
+ * Gated on the stored seed version, so it runs once and is a no-op on every
+ * load after that. Idempotent regardless: running it twice writes the same
+ * documents.
+ */
+export async function reconcileBackendRoadmap(uid: string): Promise<void> {
+  const marker = await getDoc(seedDoc(uid, 'backend'));
+  const stored = marker.exists() ? ((marker.data().version as number) ?? 0) : 0;
+  if (stored >= SEED_VERSION) return;
+
+  const existing = await getDocs(phasesCol(uid, 'backend'));
+  // Nothing seeded yet — seedTrackIfEmpty has already written the current plan.
+  if (existing.empty) return;
+
+  // Refuse to write a plan whose hours or values do not add up.
+  verifySeedHours();
+
+  const previous = existing.docs.map((d) => d.data() as PhaseDoc);
+  const report = carryReport(SEED_PHASES, previous);
+  const merged = carryTicksForward(
+    SEED_PHASES,
+    tickedSubtopicNames(previous),
+    markedSubtopicNames(previous),
+  );
+
+  const ops: Array<(batch: WriteBatch) => void> = [];
+  for (const phase of merged) {
+    const { id, ...rest } = phase;
+    ops.push((b) => b.set(phaseDoc(uid, 'backend', id), rest as PhaseDoc));
+  }
+  // A shorter plan would otherwise leave orphan phases behind the new end.
+  for (const d of existing.docs) {
+    if (Number(d.id) >= merged.length) {
+      ops.push((b) => b.delete(phaseDoc(uid, 'backend', Number(d.id))));
+    }
+  }
+  ops.push((b) => b.set(seedDoc(uid, 'backend'), { version: SEED_VERSION, at: serverTimestamp() }));
+
+  await commitInChunks(ops);
+
+  // Recorded so the change is visible in the activity log rather than simply
+  // appearing one morning as a different set of phases.
+  await logActivity(uid, 'backend', {
+    kind: 'gate',
+    label:
+      `Roadmap updated to v${SEED_VERSION} — Java/Spring, ${merged.length} phases. ` +
+      `${report.carried} of ${report.tickedBefore} ticked subtopics carried over` +
+      (report.dropped.length > 0 ? `, ${report.dropped.length} no longer in the plan.` : '.'),
+    hours: 0,
+  });
 }
 
 /**
@@ -372,6 +445,50 @@ export async function setSubtopicDone(
   if (track === 'gate') {
     await mirrorSubtopicToDay(uid, phase.id, topicIndex, subtopicIndex, done);
   }
+}
+
+/**
+ * Flag or unflag a subtopic for review.
+ *
+ * Writes only the mark: `done`, the topic's completion and the unit's gate are
+ * all untouched, because marking is a note to yourself and not a claim about
+ * whether the work happened. It is deliberately not written to the activity
+ * log either — that log measures work done and feeds the hours-per-day chart,
+ * and a stream of zero-hour flag events would bury the ticks it exists to show.
+ */
+export async function setSubtopicMarked(
+  uid: string,
+  track: TrackId,
+  phase: Phase,
+  topicIndex: number,
+  subtopicIndex: number,
+  marked: boolean,
+): Promise<void> {
+  const subtopic = phase.topics[topicIndex]?.subtopics[subtopicIndex];
+  if (!subtopic || Boolean(subtopic.marked) === marked) return;
+
+  const topics = phase.topics.map((t, i) => {
+    if (i !== topicIndex) return t;
+    return {
+      ...t,
+      subtopics: t.subtopics.map((s, j) => (j === subtopicIndex ? { ...s, marked } : s)),
+    };
+  });
+  await updateDoc(phaseDoc(uid, track, phase.id), { topics });
+}
+
+/** Clear every flag on a track at once — the "I have revised these" button. */
+export async function clearAllMarks(uid: string, track: TrackId, phases: Phase[]): Promise<void> {
+  const ops: Array<(batch: WriteBatch) => void> = [];
+  for (const phase of phases) {
+    if (!phase.topics.some((t) => t.subtopics.some((s) => s.marked))) continue;
+    const topics = phase.topics.map((t) => ({
+      ...t,
+      subtopics: t.subtopics.map((s) => (s.marked ? { ...s, marked: false } : s)),
+    }));
+    ops.push((b) => b.update(phaseDoc(uid, track, phase.id), { topics }));
+  }
+  if (ops.length > 0) await commitInChunks(ops);
 }
 
 /** Tick or untick a whole topic — cascades to every subtopic under it. */

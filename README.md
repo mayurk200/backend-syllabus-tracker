@@ -9,16 +9,35 @@ could produce this", not "I have read about this".
 | Track | Content | Hours | Units |
 | ----- | ------- | ----- | ----- |
 | **GATE 2027 — CS** | 12 subjects → weekly topics → daily subtopics, plus the live 28-week campaign timeline (W0 → exam, 6 Feb 2027) | 852 h first-pass (1,245 h across the full campaign) | 12 subjects · 86 target marks |
-| **Backend Engineering** | 12 phases → topics → the full "what exactly to learn" subtopic list | 267 h | 12 phases |
+| **Backend Engineering — Java** | 16 phases → topics → the full "what exactly to learn" subtopic list, aimed at a fresher → 30 LPA trajectory | 746 h | 16 phases |
 
-Everything is checkable at **subtopic** level — 123 GATE subtopics and 201
+Everything is checkable at **subtopic** level — 123 GATE subtopics and 375
 backend subtopics, each with its own hour allocation.
 
 Alongside the plan sits a **reference layer**: the syllabus itself, broken down
-to 733 GATE concepts across 75 chapters plus all 201 backend concepts, each with
+to 733 GATE concepts across 75 chapters plus all 375 backend concepts, each with
 one line saying what it is or what gets asked, and each chapter naming the exact
 book chapter that covers it. The GATE text is verbatim from the official IIT
 Madras syllabus, with the 2027 additions and removals flagged.
+
+Backend topics also carry a **value**: which of four bands they fall in
+(critical / high / medium / optional) and one line arguing for that band.
+Nothing is weighted without an argument attached — `verifySeedHours` fails the
+seed if a topic is banded but not justified.
+
+There is deliberately **no numeric score**. An earlier draft gave each topic a
+0–100 rating and the number was invented: nothing measured it, and sitting next
+to real quantities like hours it read as data when it was a judgement call. A
+band is honest about being a recommendation. A test also fails the seed if any
+justification states a percentage or a fabricated frequency, so the reasoning
+has to stand on its own; the few market claims that remain are the ones the
+research actually supports.
+
+The dashboard reports **critical topics done** next to hours logged, because
+hours can climb a long way without any of the work that decides the outcome
+getting done. "Most important next" orders open topics by band — and, within a
+band, shortest first, the only ordering claim made and one that rests on hours,
+which are real. It is the one place the app argues with its own phase sequence.
 
 The GATE **Timeline** tab is live: it ticks every second, counts down to the
 first exam session, highlights the current week against real dates, and settles
@@ -93,8 +112,16 @@ npm run dev
 ```
 
 Open the printed URL — the app loads straight in, no login. On first load it
-**seeds** all 12 phases and a `meta` document automatically (only if none exist).
-The seed script verifies the hours sum to 267 and throws loudly if they don't.
+**seeds** all 16 phases and a `meta` document automatically (only if none exist).
+The seed script verifies the hours sum to 746 — and that every topic's value
+carries a justification — and throws loudly if either fails.
+
+If the track is already seeded, `reconcileBackendRoadmap` brings it onto the
+current plan instead. Ticks are matched by **subtopic name across the whole
+track**, not by position, so a concept that moved between phases in a rewrite
+stays ticked; completion flags are recomputed rather than copied, so a phase
+that gained work correctly reopens. It is gated on the stored seed version and
+is a no-op once applied.
 
 ## 5. Deploy the security rules
 
@@ -235,10 +262,11 @@ One frame holds every page, so nothing is ever more than one tap away:
 
 ## Screens
 
-1. **Dashboard** — the landing screen: the one gate you are on right now with
-   everything else reporting to it — gates X/12, hours logged, the unit ladder,
-   the literal next three subtopics, hours per weekday this week, build-vs-read
-   from your last four reviews, and recent activity.
+1. **Dashboard** — the landing screen, opening on the Backend track: the one
+   gate you are on right now with everything else reporting to it — gates
+   passed, hours logged, critical topics done, the unit ladder, "most important
+   next" in band order, the literal next three subtopics, hours per weekday this
+   week, build-vs-read from your last four reviews, and recent activity.
 2. **Progress** — hours logged vs the track total, subtopic count, a tappable
    unit-progress matrix, and the gate ladder (with target marks per subject on
    the GATE track).
@@ -249,9 +277,9 @@ One frame holds every page, so nothing is ever more than one tap away:
    with the missed days named on the row rather than left for you to work out.
 4. **Syllabus** — the reference page: every chapter and every concept, each with
    one line saying what it is or what gets asked. 733 GATE concepts across 75
-   chapters, 201 backend concepts. Every subject carries a **Learn from** block
+   chapters, 375 backend concepts. Every subject carries a **Learn from** block
    (books ranked, one lecture course to pick, where to drill) and every one of
-   the 75 GATE chapters and 54 backend topics names the exact book chapter that
+   the 75 GATE chapters and 88 backend topics names the exact book chapter that
    covers it. Searchable across names and explanations, filterable to what the
    2027 revision added or dropped. Read-only by design — ticking stays on the
    study plan so the two can never disagree.
@@ -271,10 +299,19 @@ One frame holds every page, so nothing is ever more than one tap away:
    marked as such. On roadmaps with no dates it is positional instead: anything
    unticked in a unit you have already moved past. Rows are not editable — each
    links to the page where the work actually gets ticked.
-7. **Weekly review** — a full writing screen (not a cramped modal): what
+7. **Marked for review** — everything you flagged to come back to. Marking is a
+   separate axis from ticking, and that is the whole point: the useful row is
+   the subtopic you have *finished* and still would not want to be asked about,
+   which no completion percentage can express. Those are counted separately as
+   **done but shaky** and lead the page; unticked marks are just work you
+   singled out to do next. Rows carry their explanation and a link back to the
+   unit, with an unmark button and a clear-all — but no checkbox, because
+   ticking stays on the plan so completion has one home. Marks survive a roadmap
+   rewrite the same way ticks do.
+8. **Weekly review** — a full writing screen (not a cramped modal): what
    stalled, the next single objective, a drag-to-set build/read split, what last
    week said with a did-it / didn't answer, and the week's real hours.
-8. **Reviews** — the honest log: pace per week against your target, and every
+9. **Reviews** — the honest log: pace per week against your target, and every
    review as a row, filterable to the weeks you missed target or passed a gate.
 
 ## Where the content comes from
@@ -286,7 +323,8 @@ One frame holds every page, so nothing is ever more than one tap away:
 - `src/data/gateWeeks.ts` — the 28-week calendar with real dates, weekly gates
   and milestones M0–M8.
 - `src/data/seedData.ts` — the backend syllabus with the complete "what exactly
-  to learn" list for every topic.
+  to learn" list for every topic, and each topic's value against the 30 LPA
+  target.
 
 Each file ships a verifier that throws at seed time if the hours stop adding up.
 
@@ -302,10 +340,10 @@ are never seeded into Firestore:
   unit design, memory interfacing, the tabular minimisation method) and `dropped`
   flags what it removed (secondary storage, the named OSI layers, ARP/ICMP/DHCP,
   FTP/SMTP), so you can positively confirm what to skip.
-- `src/data/backendSyllabus.ts` — one line of explanation for each of the 201
+- `src/data/backendSyllabus.ts` — one line of explanation for each of the 375
   backend subtopics, keyed by name against `seedData.ts` rather than duplicating
-  the tree, plus the canonical reading per phase. A concept with no gloss simply
-  renders without one.
+  the tree, plus the canonical reading per phase and per topic. A concept with no
+  gloss simply renders without one; a test asserts there are none.
 
 ## Scripts
 

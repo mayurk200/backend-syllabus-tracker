@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useTrackerData } from './hooks/useTrackerData';
 import {
   addReview,
+  clearAllMarks,
   importTracker,
   setReviewPreviousDone,
   setSubtopicDone,
+  setSubtopicMarked,
   setTopicDone,
   resetWeekSlots,
   setMilestoneScore,
@@ -13,13 +15,15 @@ import {
   swapWeekSlots,
 } from './lib/db';
 import type {
+  MarkedItem,
   NewWeeklyReview,
   Phase,
   TrackId,
   WeekEntry,
   WeeklyReview,
 } from './types';
-import { isPhaseComplete, trackDef } from './types';
+import { DEFAULT_TRACK, isPhaseComplete, markedCount, trackDef } from './types';
+import { Marked } from './components/Marked';
 import { Backlog } from './components/Backlog';
 import { Dashboard } from './components/Dashboard';
 import { Progress } from './components/Progress';
@@ -46,6 +50,7 @@ const MOBILE_TABS: Array<{ id: Tab; label: string; gateOnly?: boolean }> = [
   { id: 'syllabus', label: 'Syllabus' },
   { id: 'timeline', label: 'Timeline', gateOnly: true },
   { id: 'backlog', label: 'Backlog' },
+  { id: 'marked', label: 'Marked' },
   { id: 'profile', label: 'Profile' },
 ];
 
@@ -61,7 +66,8 @@ function Centered({ children }: { children: React.ReactNode }): JSX.Element {
 
 export default function App(): JSX.Element {
   const uid = USER_ID;
-  const [trackId, setTrackId] = useState<TrackId>('gate');
+  // Opens on the primary track. GATE stays one tap away in the switcher.
+  const [trackId, setTrackId] = useState<TrackId>(DEFAULT_TRACK);
   const { phases, meta, weeks, weekStatus, activity, loading, error } = useTrackerData(
     uid,
     trackId,
@@ -133,6 +139,36 @@ export default function App(): JSX.Element {
     done: boolean,
   ): Promise<void> => {
     await setSubtopicDone(uid, trackId, phase, topicIndex, subtopicIndex, done);
+  };
+
+  const handleToggleMarked = async (
+    phase: Phase,
+    topicIndex: number,
+    subtopicIndex: number,
+    marked: boolean,
+  ): Promise<void> => {
+    await setSubtopicMarked(uid, trackId, phase, topicIndex, subtopicIndex, marked);
+  };
+
+  /** Unmark from the review page, where the phase has to be looked up first. */
+  const handleUnmark = async (item: MarkedItem): Promise<void> => {
+    const phase = phases.find((p) => p.id === item.unitId);
+    if (!phase) return;
+    await setSubtopicMarked(
+      uid,
+      trackId,
+      phase,
+      item.topicIndex,
+      item.subtopicIndex,
+      false,
+    );
+  };
+
+  const handleClearMarks = async (): Promise<void> => {
+    const n = markedCount(phases);
+    if (n === 0) return;
+    await clearAllMarks(uid, trackId, phases);
+    raise(`Cleared ${n} mark${n === 1 ? '' : 's'}`);
   };
 
   const handleWeekDay = async (
@@ -227,10 +263,11 @@ export default function App(): JSX.Element {
     setTrackId(next);
   };
 
-  // The only summary the shell itself needs: the count on the Backlog tab.
+  // The only summaries the shell itself needs: the two tab counts.
   const backlogCount = buildBacklog(trackId, phases, weeks).filter(
     (i) => !i.completedLate && !i.rescheduled,
   ).length;
+  const marked = markedCount(phases);
 
   // Timeline only exists on the GATE track — fall back rather than blank out.
   const activeTab: Tab = tab === 'timeline' && trackId !== 'gate' ? 'dashboard' : tab;
@@ -246,6 +283,9 @@ export default function App(): JSX.Element {
           onToggleTopic={(i, done) => handleToggleTopic(selectedPhase, i, done)}
           onToggleSubtopic={(i, j, done) =>
             handleToggleSubtopic(selectedPhase, i, j, done)
+          }
+          onToggleMarked={(i, j, marked) =>
+            handleToggleMarked(selectedPhase, i, j, marked)
           }
         />
       );
@@ -275,6 +315,16 @@ export default function App(): JSX.Element {
             weeks={weeks}
             onSelectPhase={goPhase}
             onOpenTimeline={() => goTab('timeline')}
+          />
+        );
+      case 'marked':
+        return (
+          <Marked
+            track={track}
+            phases={phases}
+            onSelectPhase={goPhase}
+            onUnmark={handleUnmark}
+            onClearAll={handleClearMarks}
           />
         );
       case 'reviews':
@@ -336,6 +386,7 @@ export default function App(): JSX.Element {
         track={track}
         inDetail={Boolean(selectedPhase)}
         backlogCount={backlogCount}
+        markedCount={marked}
         onSelect={goTab}
         onSelectTrack={goTrack}
       />
