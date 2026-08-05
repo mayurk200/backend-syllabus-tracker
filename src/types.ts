@@ -11,6 +11,33 @@ export interface Subtopic {
   done: boolean;
   /** Flag for topics newly added to the GATE 2027 syllabus (no PYQ exists). */
   isNew?: boolean;
+  /**
+   * Flagged to come back to. Deliberately independent of `done`: the useful
+   * case is work you have ticked but would not bet on under exam conditions,
+   * and collapsing the two would force you to choose between recording that you
+   * did it and recording that you are unsure of it.
+   */
+  marked?: boolean;
+}
+
+/**
+ * What a topic is worth against the salary target the track is aimed at.
+ *
+ * Bands only, deliberately. An earlier version of this carried a 0–100 score
+ * per topic, and the number was invented — nothing measured it, and putting it
+ * next to real quantities like hours made a judgement call read as data. A band
+ * is honest about being a recommendation; a score is not.
+ *
+ * `why` is not optional decoration. A band with no argument behind it is the
+ * thing this model exists to prevent, and `verifySeedHours` rejects the seed if
+ * a topic is weighted without one.
+ */
+export type ValueWeight = 'critical' | 'high' | 'medium' | 'optional';
+
+export interface TopicValue {
+  weight: ValueWeight;
+  /** One line arguing for the band. Reasoning you could defend, not a statistic. */
+  why: string;
 }
 
 export interface Topic {
@@ -19,6 +46,8 @@ export interface Topic {
   detail: string; // "what to learn" — one-line summary
   done: boolean; // true when every subtopic is done
   subtopics: Subtopic[];
+  /** Backend track only: worth against the salary target. */
+  value?: TopicValue;
 }
 
 export interface Phase {
@@ -52,9 +81,31 @@ export interface TrackDef {
   tagline: string;
   /** GATE only: marks the whole paper is worth to you. */
   targetMarks?: number;
+  /**
+   * A track you are keeping rather than committing to. It stays fully usable —
+   * nothing is hidden or disabled — but it is not what the app opens on, and
+   * the shell says so instead of letting the two plans look equally live.
+   */
+  optional?: boolean;
 }
 
+/**
+ * Backend first: it is the track being worked, so it is the one the app opens
+ * on. GATE is kept and complete, but marked optional — the two plans are
+ * 746 h and 852 h respectively and cannot both be run at full weight, so the
+ * shell states which one is primary rather than leaving it ambiguous.
+ */
 export const TRACKS: readonly TrackDef[] = [
+  {
+    id: 'backend',
+    name: 'Backend Engineering — Java · 30 LPA track',
+    shortName: 'Backend',
+    unitLabel: 'Phase',
+    unitLabelPlural: 'Phases',
+    totalHours: 746,
+    unitCount: 16,
+    tagline: 'Java · Spring Boot · fresher → 30 LPA · advance on the gate, not on hours',
+  },
   {
     id: 'gate',
     name: 'GATE 2027 — Computer Science',
@@ -63,20 +114,14 @@ export const TRACKS: readonly TrackDef[] = [
     unitLabelPlural: 'Subjects',
     totalHours: 852,
     unitCount: 12,
-    tagline: 'AIR < 50 campaign · 27 weeks · 86-mark target',
+    tagline: 'Optional track · AIR < 50 campaign · 27 weeks · 86-mark target',
     targetMarks: 86,
-  },
-  {
-    id: 'backend',
-    name: 'Backend Engineering — MLE Track',
-    shortName: 'Backend',
-    unitLabel: 'Phase',
-    unitLabelPlural: 'Phases',
-    totalHours: 267,
-    unitCount: 12,
-    tagline: 'Advance on the gate, not on hours · 70% build / 30% read',
+    optional: true,
   },
 ];
+
+/** What the app opens on. The first track listed is the one being worked. */
+export const DEFAULT_TRACK: TrackId = TRACKS[0].id;
 
 export function trackDef(id: TrackId): TrackDef {
   const t = TRACKS.find((x) => x.id === id);
@@ -572,13 +617,166 @@ export function isPhaseComplete(phase: Phase): boolean {
   return allWorkDone(phase) || phase.gatePassed;
 }
 
+// ---- Marked for review ----
+
+/** One flagged subtopic, with everything the review page needs to show it. */
+export interface MarkedItem {
+  /** Stable across renders, and unique because subtopic names are. */
+  id: string;
+  unitId: number;
+  unitTitle: string;
+  topicIndex: number;
+  subtopicIndex: number;
+  topicName: string;
+  name: string;
+  hours: number;
+  /** Whether the work itself is ticked. A marked item can be either. */
+  done: boolean;
+}
+
+/**
+ * Every subtopic flagged for review, in plan order.
+ *
+ * Plan order rather than "most recently marked": there is no timestamp on a
+ * mark, and inventing one would mean writing a field on every toggle for the
+ * sake of a sort nobody asked for. Reading the list in syllabus order also
+ * groups related weak spots together, which is how you would revise them.
+ */
+export function collectMarked(phases: Phase[]): MarkedItem[] {
+  const items: MarkedItem[] = [];
+  for (const phase of phases) {
+    phase.topics.forEach((topic, topicIndex) => {
+      topic.subtopics.forEach((sub, subtopicIndex) => {
+        if (!sub.marked) return;
+        items.push({
+          id: `${phase.id}:${topicIndex}:${subtopicIndex}`,
+          unitId: phase.id,
+          unitTitle: phase.title,
+          topicIndex,
+          subtopicIndex,
+          topicName: topic.name,
+          name: sub.name,
+          hours: sub.hours,
+          done: sub.done,
+        });
+      });
+    });
+  }
+  return items;
+}
+
+export function markedCount(phases: Phase[]): number {
+  return phases.reduce(
+    (n, p) => n + p.topics.reduce((m, t) => m + t.subtopics.filter((s) => s.marked).length, 0),
+    0,
+  );
+}
+
+/** Focused hours sitting behind the flags. */
+export function markedHours(items: MarkedItem[]): number {
+  return Math.round(items.reduce((s, i) => s + i.hours, 0) * 10) / 10;
+}
+
+// ---- Value against the salary target ----
+
+/** Most valuable first — the order the bands are argued in, not alphabetical. */
+export const VALUE_WEIGHTS: readonly ValueWeight[] = [
+  'critical',
+  'high',
+  'medium',
+  'optional',
+];
+
+export const VALUE_WEIGHT_LABEL: Record<ValueWeight, string> = {
+  critical: 'critical',
+  high: 'high',
+  medium: 'medium',
+  optional: 'optional',
+};
+
+/**
+ * What each band means, so the badge is not just a colour.
+ *
+ * Phrased as instructions about this plan rather than as claims about what
+ * interviewers do. The per-topic `why` carries the argument; a band label
+ * should not smuggle in a blanket assertion about all 64 topics under it.
+ */
+export const VALUE_WEIGHT_MEANING: Record<ValueWeight, string> = {
+  critical: 'Do not skip. The plan does not hold together without this.',
+  high: 'Strongly recommended — this is where depth comes from.',
+  medium: 'Worth doing once the two bands above are covered.',
+  optional: 'Only once everything else is done. Cut this first if time is short.',
+};
+
+/** Where a band sits in the ordering. Lower is more important. */
+function bandRank(weight: ValueWeight): number {
+  return VALUE_WEIGHTS.indexOf(weight);
+}
+
+export interface BandProgress {
+  done: number;
+  total: number;
+}
+
+/**
+ * How many topics in a band are finished.
+ *
+ * A count, not a percentage of some composite index. There is no arithmetic
+ * here that could be mistaken for a measurement: the bands are a judgement, and
+ * the only honest thing to report about a judgement is how much of it you have
+ * acted on.
+ */
+export function bandProgress(
+  phases: Phase[] | Phase,
+  weight: ValueWeight,
+): BandProgress {
+  const list = Array.isArray(phases) ? phases : [phases];
+  const topics = list.flatMap((p) => p.topics).filter((t) => t.value?.weight === weight);
+  return {
+    done: topics.filter((t) => topicDoneFromSubtopics(t)).length,
+    total: topics.length,
+  };
+}
+
+/** Shorthand for the band that decides whether you clear the bar. */
+export function criticalProgress(phases: Phase[] | Phase): BandProgress {
+  return bandProgress(phases, 'critical');
+}
+
+/** The heaviest band present in a unit — what the badge on the card shows. */
+export function phaseWeight(phase: Phase): ValueWeight | null {
+  for (const w of VALUE_WEIGHTS) {
+    if (phase.topics.some((t) => t.value?.weight === w)) return w;
+  }
+  return null;
+}
+
+/**
+ * Unticked topics, most important first, and within a band the shortest first.
+ *
+ * The second half of that rule is the only ordering claim being made: given two
+ * topics that matter equally, the one that takes three hours should come before
+ * the one that takes forty. That needs no invented score — the hours are real
+ * and the band is stated.
+ */
+export function nextByValue(phases: Phase[], max = 5): Array<{ phase: Phase; topic: Topic }> {
+  return phases
+    .flatMap((phase) => phase.topics.map((topic) => ({ phase, topic })))
+    .filter(({ topic }) => topic.value && !topicDoneFromSubtopics(topic))
+    .sort((a, b) => {
+      const byBand = bandRank(a.topic.value!.weight) - bandRank(b.topic.value!.weight);
+      return byBand !== 0 ? byBand : a.topic.hours - b.topic.hours;
+    })
+    .slice(0, max);
+}
+
 /** Recompute a topic's `done` flag from its subtopics. */
 export function topicDoneFromSubtopics(topic: Topic): boolean {
   if (topic.subtopics.length === 0) return topic.done;
   return topic.subtopics.every((s) => s.done);
 }
 
-/** Backend track: total focused hours across all 12 phases. */
-export const TOTAL_SYLLABUS_HOURS = 267;
+/** Backend track: total focused hours across all 16 phases. */
+export const TOTAL_SYLLABUS_HOURS = 746;
 /** GATE track: first-pass (Phase-1) learning hours across all 12 subjects. */
 export const TOTAL_GATE_HOURS = 852;

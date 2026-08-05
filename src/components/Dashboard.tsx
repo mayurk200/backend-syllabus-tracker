@@ -1,8 +1,11 @@
 import type { ActivityEvent, Meta, Phase, TrackDef, WeeklyReview } from '../types';
 import {
+  VALUE_WEIGHT_LABEL,
+  criticalProgress,
   hoursByDay,
   hoursLogged,
   isPhaseComplete,
+  nextByValue,
   startOfWeek,
   topicCompletion,
 } from '../types';
@@ -98,6 +101,11 @@ export function Dashboard({
     0,
   );
 
+  const scored = phases.some((p) => p.topics.some((t) => t.value));
+  const critical = criticalProgress(phases);
+  /** Unticked topics, most important band first, shortest first within it. */
+  const bestReturn = scored ? nextByValue(phases, 3) : [];
+
   const band: Array<{ label: string; value: string; note: string; fg?: string }> = [
     {
       label: 'Gates',
@@ -111,11 +119,21 @@ export function Dashboard({
       note: 'first-pass learning',
       fg: MUTED,
     },
-    {
-      label: 'Subtopics',
-      value: `${subsDone}/${subsTotal}`,
-      note: track.id === 'gate' ? 'one per study day' : 'the checkable grain',
-    },
+    // On a track that bands its topics, the critical count earns the slot next
+    // to hours: hours can climb a long way without any of the work that
+    // actually decides the outcome getting done.
+    scored && critical.total > 0
+      ? {
+          label: 'Critical topics',
+          value: `${critical.done}/${critical.total}`,
+          note: 'the work that decides the outcome',
+          fg: critical.done > 0 ? 'var(--accent-700)' : MUTED,
+        }
+      : {
+          label: 'Subtopics',
+          value: `${subsDone}/${subsTotal}`,
+          note: track.id === 'gate' ? 'one per study day' : 'the checkable grain',
+        },
     {
       label: 'This week',
       value: `${weekHours}/${target}h`,
@@ -246,6 +264,52 @@ export function Dashboard({
           )}
         </div>
 
+        {/* Ordered by band rather than by phase number, which is the one place
+            this track deliberately argues with its own sequence: critical work
+            should be visible even when it sits ten phases ahead. Within a band
+            the shortest topic comes first — the only ordering claim here, and
+            it rests on hours, which are real. */}
+        {bestReturn.length > 0 && (
+          <div className="mt-6">
+            <div className="mb-2 flex items-baseline justify-between">
+              <span className="k">Most important next</span>
+              <span className="k">shortest first</span>
+            </div>
+            <div style={{ borderTop: '1px solid rgba(29,31,32,.18)' }}>
+              {bestReturn.map(({ phase, topic }) => (
+                <button
+                  key={`${phase.id}-${topic.name}`}
+                  onClick={() => onSelectPhase(phase.id)}
+                  className="flex w-full items-start gap-3 py-2 text-left"
+                  style={{ borderBottom: '1px solid rgba(29,31,32,.14)' }}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className="block truncate"
+                      style={{ font: '500 13px/1.4 var(--font-body)' }}
+                    >
+                      {topic.name}
+                    </span>
+                    <span className="k mt-0.5 block" style={{ letterSpacing: '.06em' }}>
+                      {phase.title} ·{' '}
+                      {topic.value ? VALUE_WEIGHT_LABEL[topic.value.weight] : ''}
+                    </span>
+                  </span>
+                  <span
+                    className="flex-none"
+                    style={{
+                      font: '600 15px/1 var(--font-heading)',
+                      fontVariantNumeric: 'tabular-nums',
+                      color: ACCENT,
+                    }}
+                  >
+                    {topic.hours}h
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── ladder · up next + pace · ratio + activity ─────────────────── */}

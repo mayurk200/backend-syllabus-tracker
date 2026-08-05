@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react';
-import type { Phase, TrackDef } from '../types';
-import { hoursLogged, isPhaseComplete, subtopicCompletion, topicHoursLogged } from '../types';
+import type { Phase, TopicValue, TrackDef, ValueWeight } from '../types';
+import {
+  VALUE_WEIGHT_MEANING,
+  criticalProgress,
+  hoursLogged,
+  isPhaseComplete,
+  subtopicCompletion,
+  topicHoursLogged,
+} from '../types';
 import { GATE_LEARN_FROM, GATE_SYLLABUS, chapterSource } from '../data/gateSyllabus';
 import {
   BACKEND_LEARN_FROM,
@@ -22,10 +29,50 @@ interface PhaseDetailProps {
     subtopicIndex: number,
     done: boolean,
   ) => Promise<void>;
+  onToggleMarked: (
+    topicIndex: number,
+    subtopicIndex: number,
+    marked: boolean,
+  ) => Promise<void>;
 }
 
 const ACCENT = '#5980a6';
 const RED = '#a03c3c';
+/** Marked for review — the same amber the backlog uses for "needs attention". */
+const AMBER = '#9a7b3f';
+
+/**
+ * Band as a word and a colour, with no number beside it. A number here would
+ * read as a measurement, and nothing measured these — the argument in `why` is
+ * the whole of the evidence.
+ */
+const WEIGHT_COLOR: Record<ValueWeight, string> = {
+  critical: RED,
+  high: ACCENT,
+  medium: 'rgba(29,31,32,.5)',
+  optional: 'rgba(29,31,32,.32)',
+};
+
+function ValueBadge({ value }: { value: TopicValue }): JSX.Element {
+  const color = WEIGHT_COLOR[value.weight];
+  return (
+    <span
+      className="flex-none"
+      title={VALUE_WEIGHT_MEANING[value.weight]}
+      style={{
+        font: '600 8.5px var(--font-heading)',
+        letterSpacing: '.12em',
+        textTransform: 'uppercase',
+        color,
+        border: `1px solid ${color}`,
+        padding: '2px 4px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {value.weight}
+    </span>
+  );
+}
 
 function NewFlag(): JSX.Element {
   return (
@@ -51,6 +98,7 @@ export function PhaseDetail({
   onBack,
   onToggleTopic,
   onToggleSubtopic,
+  onToggleMarked,
 }: PhaseDetailProps): JSX.Element {
   const [open, setOpen] = useState<number | null>(0);
   const isGate = track.id === 'gate';
@@ -106,6 +154,8 @@ export function PhaseDetail({
   );
   const unitIndex = phases.findIndex((p) => p.id === phase.id) + 1;
   const complete = isPhaseComplete(phase);
+  const scored = phase.topics.some((t) => t.value);
+  const critical = criticalProgress(phase);
 
   return (
     <div className="space-y-5">
@@ -142,7 +192,7 @@ export function PhaseDetail({
         title={phase.title}
         meta={`${phase.hours}h · ${phase.topics.length} topics · ${subsTotal} subtopics${
           phase.targetMarks ? ` · ${phase.targetMarks} marks target` : ''
-        }`}
+        }${critical.total > 0 ? ` · ${critical.total} critical topics` : ''}`}
       />
 
       <div className="grid gap-7 md:grid-cols-[380px_1fr] md:items-start">
@@ -186,7 +236,7 @@ export function PhaseDetail({
           </div>
 
           <div
-            className="grid grid-cols-2 gap-px border"
+            className={`grid gap-px border ${scored ? 'grid-cols-3' : 'grid-cols-2'}`}
             style={{
               background: 'rgba(29,31,32,.35)',
               borderColor: 'rgba(29,31,32,.35)',
@@ -204,6 +254,17 @@ export function PhaseDetail({
                 {logged}/{phase.hours}
               </div>
             </div>
+            {/* A count of the topics that decide whether you clear the bar,
+                shown beside hours because the two can diverge: it is possible
+                to be well into the hours and barely into the critical work. */}
+            {scored && critical.total > 0 && (
+              <div className="bg-bg p-3.5">
+                <div className="k">Critical</div>
+                <div style={{ font: '600 24px/1.1 var(--font-heading)' }}>
+                  {critical.done}/{critical.total}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -241,6 +302,7 @@ export function PhaseDetail({
                         {topic.name}
                       </span>
                       {isNew && <NewFlag />}
+                      {topic.value && <ValueBadge value={topic.value} />}
                       <span className="k w-[34px] flex-none text-right">
                         {subsDoneHere}/{topic.subtopics.length}
                       </span>
@@ -259,6 +321,24 @@ export function PhaseDetail({
                         {topicHoursLogged(topic)}/{topic.hours}h ·{' '}
                         {subtopicCompletion(topic)}%
                       </div>
+                      {/* Why the badge says what it says. A weight with no
+                          argument behind it is the thing this whole model is
+                          meant to avoid, so it is shown, not hidden in a tooltip. */}
+                      {topic.value && (
+                        <div
+                          className="mb-2 py-1.5 pl-2.5"
+                          style={{
+                            borderLeft: `2px solid ${WEIGHT_COLOR[topic.value.weight]}`,
+                            font: '400 12px/1.5 var(--font-body)',
+                            color: 'rgba(29,31,32,.7)',
+                          }}
+                        >
+                          {topic.value.why}
+                          <span className="k mt-1 block">
+                            {VALUE_WEIGHT_MEANING[topic.value.weight]}
+                          </span>
+                        </div>
+                      )}
                       {!isGate && backendTopicSource(phase.title, topic.name) && (
                         <div className="mb-2">
                           <SourceLine
@@ -309,6 +389,36 @@ export function PhaseDetail({
                               )}
                             </span>
                             {s.isNew && <NewFlag />}
+                            {/* Outside the label's checkbox, so flagging never
+                                ticks the work by accident. */}
+                            <button
+                              type="button"
+                              className="flex-none"
+                              aria-pressed={Boolean(s.marked)}
+                              aria-label={
+                                s.marked ? 'Unmark for review' : 'Mark for review'
+                              }
+                              title={
+                                s.marked
+                                  ? 'Marked for review — tap to clear'
+                                  : 'Mark for review'
+                              }
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                void onToggleMarked(ti, si, !s.marked);
+                              }}
+                              style={{
+                                font: '600 8.5px var(--font-heading)',
+                                letterSpacing: '.12em',
+                                padding: '2px 4px',
+                                background: s.marked ? AMBER : 'transparent',
+                                color: s.marked ? '#fff' : 'rgba(29,31,32,.3)',
+                                border: `1px solid ${s.marked ? AMBER : 'rgba(29,31,32,.2)'}`,
+                              }}
+                            >
+                              {s.marked ? 'MARKED' : 'MARK'}
+                            </button>
                             <span className="k w-[26px] flex-none text-right">
                               {s.hours}h
                             </span>
